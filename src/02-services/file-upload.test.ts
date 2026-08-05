@@ -1,0 +1,160 @@
+/**
+ * Spec for the file-upload service.
+ *
+ * Contract:
+ *   isLocalFile(input):
+ *     - http:// and https:// URLs are NOT local
+ *     - existing filesystem path is local
+ *     - non-existent path is not local
+ *
+ *   uploadFile(path, opts):
+ *     - POSTs the file to the upload URL with auth headers
+ *     - Returns the response URL on success
+ *     - Throws on HTTP failure
+ *     - Throws if the file exceeds 500MB
+ *     - Throws if the response has no URL
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FileError } from '#infra/errors/file.ts';
+import { isLocalFile, resolveFileInput, uploadFile } from './file-upload.ts';
+
+let tmpDir: string;
+let originalFetch: typeof fetch;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-upload-'));
+  originalFetch = globalThis.fetch;
+});
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  globalThis.fetch = originalFetch;
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  isLocalFile                                                           */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('isLocalFile', () => {
+  it('returns false for http:// URLs', () => {
+    expect(isLocalFile('http://example.com/img.png')).toBe(false);
+  });
+
+  it('returns false for https:// URLs', () => {
+    expect(isLocalFile('https://example.com/img.png')).toBe(false);
+  });
+
+  it('returns true for an existing local file', () => {
+    const filePath = path.join(tmpDir, 'real.png');
+    fs.writeFileSync(filePath, 'data');
+    expect(isLocalFile(filePath)).toBe(true);
+  });
+
+  it('returns false for a non-existent local path', () => {
+    expect(isLocalFile(path.join(tmpDir, 'ghost.png'))).toBe(false);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  uploadFile — happy path                                               */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('uploadFile — happy path', () => {
+  it('posts the file and returns the response URL', async () => {
+    const filePath = path.join(tmpDir, 'photo.png');
+    fs.writeFileSync(filePath, 'fake-png-bytes');
+
+    const mock = vi.fn(async () => {
+      return new Response(JSON.stringify({ response: { url: 'https://cdn.example.com/uploaded.png' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    globalThis.fetch = mock as unknown as typeof fetch;
+
+    const url = await uploadFile(filePath, { token: 'tkn', uid: 'usr' });
+    expect(url).toBe('https://cdn.example.com/uploaded.png');
+    expect(mock).toHaveBeenCalledOnce();
+  });
+
+  it('accepts a response with top-level "url" field (legacy shape)', async () => {
+    const filePath = path.join(tmpDir, 'a.png');
+    fs.writeFileSync(filePath, 'x');
+
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ url: 'https://cdn.example.com/legacy.png' }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    expect(await uploadFile(filePath, { token: 't', uid: 'u' })).toBe('https://cdn.example.com/legacy.png');
+  });
+
+  it('sends Authorization Bearer header from opts.token', async () => {
+    const filePath = path.join(tmpDir, 'a.png');
+    fs.writeFileSync(filePath, 'x');
+
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ url: 'https://x' }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await uploadFile(filePath, { token: 'my-token', uid: 'usr-99' });
+    expect(capturedHeaders.Authorization).toBe('Bearer my-token');
+    expect(capturedHeaders['user-id']).toBe('usr-99');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  uploadFile — error paths                                              */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('uploadFile — error paths', () => {
+  it('throws on HTTP non-2xx with status code in the message', async () => {
+    const filePath = path.join(tmpDir, 'a.png');
+    fs.writeFileSync(filePath, 'x');
+
+    globalThis.fetch = vi.fn(
+      async () => new Response('Unauthorized', { status: 401, statusText: 'Unauthorized' }),
+    ) as unknown as typeof fetch;
+
+    await expect(uploadFile(filePath, { token: 't', uid: 'u' })).rejects.toThrow(/401/);
+  });
+
+  it('throws if the response is missing a URL', async () => {
+    const filePath = path.join(tmpDir, 'a.png');
+    fs.writeFileSync(filePath, 'x');
+
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ response: {} }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    await expect(uploadFile(filePath, { token: 't', uid: 'u' })).rejects.toThrow(/no url/i);
+  });
+
+  it('throws when the file is missing', async () => {
+    const filePath = path.join(tmpDir, 'ghost.png');
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    await expect(uploadFile(filePath, { token: 't', uid: 'u' })).rejects.toThrow();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  resolveFileInput — bad input rejection                                */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('resolveFileInput', () => {
+  it('throws FileError for a path-shaped string with no file on disk', async () => {
+    // Reproduces the voice-clone failure: AUD=/voice.mp3 (non-existent),
+    // which used to be shipped to the backend as a URL.
+    await expect(resolveFileInput('/voice.mp3', { token: 't', uid: 'u' })).rejects.toBeInstanceOf(FileError);
+  });
+
+  it('passes through http(s) URLs unchanged without an upload', async () => {
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    const url = 'https://example.com/clip.mp3';
+    await expect(resolveFileInput(url, { token: 't', uid: 'u' })).resolves.toBe(url);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});

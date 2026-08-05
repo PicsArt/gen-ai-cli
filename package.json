@@ -1,0 +1,92 @@
+{
+  "name": "@picsart/gen-ai",
+  "version": "2.59.0",
+  "type": "module",
+  "description": "Picsart AI CLI — generate images, video, and audio from the terminal",
+  "license": "MIT",
+  "author": "Picsart",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "./dist/cli.js",
+  "bin": {
+    "gen-ai": "dist/bin/gen-ai.mjs"
+  },
+  "imports": {
+    "#infra/*": "./src/01-infrastructure/*",
+    "#services/*": "./src/02-services/*",
+    "#param-surface": "./src/03-definitions/01-param-surface/index.ts",
+    "#param-surface/*": "./src/03-definitions/01-param-surface/*",
+    "#flows": "./src/03-definitions/02-flows/index.ts",
+    "#flows/*": "./src/03-definitions/02-flows/*",
+    "#pipeline/*": "./src/04-pipeline/*",
+    "#shells/*": "./src/05-shells/*",
+    "#root/*": "./src/*"
+  },
+  "files": [
+    "dist/",
+    "skills/"
+  ],
+  "dependencies": {
+    "@inquirer/checkbox": "^5.1.2",
+    "@inquirer/confirm": "^6.0.10",
+    "@inquirer/input": "^5.0.10",
+    "@inquirer/search": "^4.1.6",
+    "@inquirer/select": "^5.1.2",
+    "@oclif/core": "^4.10.3",
+    "@picsart/ai-sdk": "3.26.0",
+    "chalk": "^5.0.0",
+    "cli-progress": "^3.12.0",
+    "fflate": "^0.8.2",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.12",
+    "@types/cli-progress": "^3.11.6",
+    "@vitest/coverage-v8": "^4.1.6",
+    "dependency-cruiser": "^17.3.10",
+    "tsup": "^8.5.1",
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.6"
+  },
+  "oclif": {
+    "bin": "gen-ai",
+    "commands": {
+      "strategy": "explicit",
+      "target": "./src/commands-manifest.ts",
+      "identifier": "COMMANDS"
+    },
+    "topicSeparator": " ",
+    "additionalHelpFlags": [
+      "-h"
+    ],
+    "additionalVersionFlags": [
+      "-v"
+    ]
+  },
+  "scripts": {
+    "build": "npx tsup && node scripts/post-build.mjs",
+    "build:bin": "bash scripts/build-bin.sh",
+    "bundle": "npm run build",
+    "dev": "node --experimental-strip-types --no-warnings src/index.ts",
+    "test": "node --experimental-strip-types --no-warnings __tests__/run-all.ts",
+    "test:vitest": "vitest run",
+    "test:vitest:watch": "vitest",
+    "test:vitest:coverage": "vitest run --coverage",
+    "test:wiring": "vitest run src/04-pipeline/all-models-wiring.test.ts",
+    "audit:params": "node --experimental-strip-types --no-warnings scripts/audit-params.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/ __tests__/",
+    "lint:fix": "biome check --write src/ __tests__/",
+    "format": "biome format --write src/ __tests__/",
+    "check:arch": "depcruise src/ --config .dependency-cruiser.cjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PicsArt/gen-ai-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PicsArt/gen-ai-cli/issues"
+  },
+  "homepage": "https://picsart.com/gen-ai-cli/"
+}

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "jsx": "react-jsx"
+  },
+  // CLI source + its tooling only. `install/` ships skill bundles whose assets
+  // include a standalone Remotion template (its own project, its own deps);
+  // `docs-site/` is a separate VitePress package with its own toolchain.
+  // Neither is compiled by this package, so neither belongs in the typecheck.
+  "include": ["./src/**/*.ts", "./__tests__/**/*.ts", "./scripts/**/*.ts", "./*.ts"],
+  "exclude": ["node_modules", "dist", "install", "docs-site"]
+}

@@ -1,0 +1,125 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ALIAS_MAP > matches snapshot 1`] = `
+{
+  "asmrMode": {
+    "aliases": [
+      "asmr",
+    ],
+  },
+  "aspectRatio": {
+    "aliases": [
+      "ar",
+    ],
+  },
+  "audioUrl": {
+    "char": "a",
+    "flag": "audio",
+  },
+  "bgmPrompt": {
+    "aliases": [
+      "bgm",
+    ],
+  },
+  "cfgScale": {
+    "aliases": [
+      "cfg",
+    ],
+  },
+  "characterOrientation": {
+    "aliases": [
+      "orientation",
+    ],
+  },
+  "count": {
+    "char": "n",
+  },
+  "duration": {
+    "char": "d",
+  },
+  "externalTaskId": {
+    "aliases": [
+      "task-id",
+    ],
+  },
+  "generateAudio": {
+    "aliases": [
+      "audio-gen",
+    ],
+  },
+  "humanFidelity": {
+    "aliases": [
+      "fidelity",
+    ],
+  },
+  "imageUrls": {
+    "char": "i",
+    "flag": "image",
+  },
+  "imageWeight": {
+    "aliases": [
+      "weight",
+    ],
+  },
+  "keepOriginalSound": {
+    "aliases": [
+      "keep-audio",
+    ],
+  },
+  "model": {
+    "flag": "model-version",
+  },
+  "negativePrompt": {
+    "aliases": [
+      "neg-prompt",
+      "neg",
+    ],
+  },
+  "outputFormat": {
+    "aliases": [
+      "format",
+    ],
+  },
+  "prompt": {
+    "char": "p",
+  },
+  "removeBackgroundNoise": {
+    "flag": "remove-bg-noise",
+  },
+  "renderingSpeed": {
+    "aliases": [
+      "speed",
+    ],
+  },
+  "resolution": {
+    "char": "r",
+  },
+  "soundEffectPrompt": {
+    "aliases": [
+      "sfx-prompt",
+    ],
+  },
+  "sourceImageId": {
+    "aliases": [
+      "source-id",
+    ],
+  },
+  "thinkingLevel": {
+    "aliases": [
+      "thinking",
+    ],
+  },
+  "videoUrl": {
+    "aliases": [
+      "vd",
+    ],
+    "flag": "video",
+  },
+  "voiceId": {
+    "aliases": [
+      "ve",
+    ],
+    "flag": "voice",
+  },
+}
+`;

@@ -1,0 +1,286 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.12/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**/src/**/*.ts",
+      "**/__tests__/**/*.ts",
+      "**/repl.ts",
+      "!**/dist/",
+      "!**/node_modules/"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "recommended": true,
+        "noExcessiveCognitiveComplexity": "off",
+        "noStaticOnlyClass": "error",
+        "noUselessConstructor": "error",
+        "noUselessLoneBlockStatements": "error",
+        "noUselessTernary": "error",
+        "noUselessRename": "error",
+        "noBannedTypes": "error",
+        "noVoid": "error",
+        "useArrowFunction": "error",
+        "useFlatMap": "error",
+        "useLiteralKeys": "error",
+        "useOptionalChain": "error"
+      },
+      "correctness": {
+        "recommended": true,
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": {
+          "level": "error",
+          "options": {
+            "ignoreRestSiblings": true
+          }
+        },
+        "noUnusedPrivateClassMembers": "error",
+        "noConstantCondition": "error",
+        "noUndeclaredVariables": "error"
+      },
+      "performance": {
+        "recommended": true
+      },
+      "security": {
+        "recommended": true
+      },
+      "style": {
+        "recommended": true,
+        "noDefaultExport": "off",
+        "useImportType": "error",
+        "useExportType": "error",
+        "noNonNullAssertion": "off",
+        "useConst": "error",
+        "useTemplate": "error",
+        "noParameterAssign": "error",
+        "useNumberNamespace": "error",
+        "noUselessElse": "error",
+        "useShorthandFunctionType": "error",
+        "useCollapsedElseIf": "error",
+        "useSingleVarDeclarator": "error",
+        "useEnumInitializers": "error",
+        "useDefaultParameterLast": "error",
+        "useExponentiationOperator": "error"
+      },
+      "suspicious": {
+        "recommended": true,
+        "noExplicitAny": "error",
+        "noConsole": {
+          "level": "error",
+          "options": {
+            "allow": [
+              "error",
+              "warn"
+            ]
+          }
+        },
+        "noDoubleEquals": "error",
+        "noEmptyBlockStatements": "error",
+        "noFallthroughSwitchClause": "error",
+        "noConfusingLabels": "error",
+        "noAssignInExpressions": "error",
+        "noConfusingVoidType": "error",
+        "noEvolvingTypes": "error",
+        "noControlCharactersInRegex": "off",
+        "useAwait": "off",
+        "useDefaultSwitchClauseLast": "error"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/src/shared/ui/banner.ts",
+        "**/src/shared/ui/custom-help.ts",
+        "**/src/shared/ui/prompt-files.ts",
+        "**/src/shared/ui/prompt-input.ts",
+        "**/src/shared/utils/terminal-image.ts",
+        "**/src/entry/repl.ts",
+        "**/src/compile-entry.ts",
+        "**/src/commands/credits.ts",
+        "**/src/services/batch.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/__tests__/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/src/01-infrastructure/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/02-services/**",
+                      "**/03-definitions/**",
+                      "**/04-pipeline/**",
+                      "**/07-commands/**",
+                      "**/08-entry/**"
+                    ],
+                    "message": "01-infrastructure is the lowest layer — it must not import from higher layers (services, definitions, pipeline, commands, entry)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/src/02-services/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/03-definitions/**",
+                      "**/04-pipeline/**",
+                      "**/07-commands/**",
+                      "**/08-entry/**"
+                    ],
+                    "message": "02-services may only depend on 01-infrastructure — no imports from definitions/pipeline/commands/entry."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/src/03-definitions/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/04-pipeline/**",
+                      "**/07-commands/**",
+                      "**/08-entry/**"
+                    ],
+                    "message": "03-definitions may only depend on 01-infrastructure and 02-services — no imports from pipeline/commands/entry."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/src/04-pipeline/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/07-commands/**",
+                      "**/08-entry/**"
+                    ],
+                    "message": "04-pipeline may only depend on lower layers — no imports from commands or entry."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/src/07-commands/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/08-entry/**"
+                    ],
+                    "message": "07-commands must not import from 08-entry — entry is the top of the dependency tree."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

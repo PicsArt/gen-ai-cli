@@ -1,0 +1,53 @@
+/**
+ * Flag Reader — the interpret-half for oclif flags.
+ *
+ * The symmetric inverse of `03-describe/01-flag-schema/`. Given parsed
+ * flag values (the object oclif emits after parsing argv) and the
+ * Catalog, produces the generation context the SDK's buildPayload reads.
+ *
+ *   oclif parsed flags   →   ┌────────────────────┐   →   Partial<
+ *   { 'aspect-ratio': '16:9'  │   flag-reader      │       GenerationContext>
+ *     'cfg-scale': '7.5'      │   walks catalog,   │       { aspectRatio: '16:9',
+ *     'shot-prompt': [...] }  │   per-kind dispatch│         cfgScale: 7.5,
+ *                             └────────────────────┘         multiPrompt: [...] }
+ *
+ * Per-kind behavior:
+ *   - file        skipped (resolver's file pipeline owns these)
+ *   - object      delegated to `./objects.ts` (interpretObjectArray)
+ *   - everything  delegated to `primitives/coercion` (coerceToDescriptor)
+ *
+ * oclif normalizes aliases / chars to the canonical flag name during
+ * parsing, so this reader only reads under `surface.flag` — it does not
+ * need to know about `--ar` or `-p`.
+ *
+ * Flags NOT in the catalog (e.g. universal --json) are silently ignored.
+ * The downstream flow-filter block decides "is this flag valid for this
+ * flow?" — not this one.
+ */
+import type { GenerationContext } from '@picsart/ai-sdk';
+import { coerceToDescriptor } from '../../01-primitives/02-coercion/index.ts';
+import type { Catalog, ParamSurface } from '../../02-catalog/index.ts';
+import { interpretObjectArray } from './objects.ts';
+
+export function collectGenerationContext(flags: Record<string, unknown>, catalog: Catalog): Partial<GenerationContext> {
+  const ctx: Record<string, unknown> = {};
+  for (const surface of catalog.all()) {
+    const value = collectOne(flags, surface);
+    if (value !== undefined) ctx[surface.key] = value;
+  }
+  return ctx as Partial<GenerationContext>;
+}
+
+function collectOne(flags: Record<string, unknown>, surface: ParamSurface): unknown {
+  const kind = surface.descriptor.kind;
+
+  // File descriptors are owned by the resolver's file pipeline (uploads
+  // local paths, etc.). The flag-reader must never write to ctx for them.
+  if (kind === 'file') return undefined;
+
+  // Object descriptors fan out across per-subfield flag names. See ./objects.ts.
+  if (kind === 'object') return interpretObjectArray(flags, surface);
+
+  // Scalar kinds: read the canonical flag name, coerce via primitives.
+  return coerceToDescriptor(flags[surface.flag], surface.descriptor);
+}

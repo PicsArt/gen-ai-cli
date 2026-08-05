@@ -1,0 +1,60 @@
+{
+  "name": "@picsart/gen-ai",
+  "version": "2.59.0",
+  "type": "module",
+  "description": "Picsart AI CLI — generate images, video, and audio from the terminal",
+  "license": "MIT",
+  "author": "Picsart",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "./cli.js",
+  "bin": {
+    "gen-ai": "./bin/gen-ai.mjs"
+  },
+  "files": [
+    "*.js",
+    "bin/",
+    "skills/",
+    "README.md",
+    "banner.svg"
+  ],
+  "dependencies": {
+    "@inquirer/checkbox": "^5.1.2",
+    "@inquirer/confirm": "^6.0.10",
+    "@inquirer/input": "^5.0.10",
+    "@inquirer/search": "^4.1.6",
+    "@inquirer/select": "^5.1.2",
+    "@oclif/core": "^4.10.3",
+    "chalk": "^5.0.0",
+    "cli-progress": "^3.12.0",
+    "fflate": "^0.8.2",
+    "ora": "^8.2.0"
+  },
+  "oclif": {
+    "bin": "gen-ai",
+    "commands": {
+      "strategy": "explicit",
+      "target": "./cli.js",
+      "identifier": "COMMANDS"
+    },
+    "topicSeparator": " ",
+    "additionalHelpFlags": [
+      "-h"
+    ],
+    "additionalVersionFlags": [
+      "-v"
+    ]
+  },
+  "scripts": {
+    "postversion": "node ../scripts/sync-version-to-root.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PicsArt/gen-ai-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PicsArt/gen-ai-cli/issues"
+  },
+  "homepage": "https://picsart.com/gen-ai-cli/"
+}

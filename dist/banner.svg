@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 240" width="540" height="240" role="img" aria-label="Picsart gen-ai">
+  <style>
+    .logo { font: 700 14px ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace; fill: #E859B4; white-space: pre; }
+    .border { fill: none; stroke: #E859B4; stroke-width: 1.5; }
+  </style>
+  <rect class="border" x="6" y="6" width="528" height="228" rx="6"/>
+  <text class="logo" x="20" y="32" xml:space="preserve">██████╗ ██╗ ██████╗███████╗ █████╗ ██████╗ ████████╗</text>
+  <text class="logo" x="20" y="50" xml:space="preserve">██╔══██╗██║██╔════╝██╔════╝██╔══██╗██╔══██╗╚══██╔══╝</text>
+  <text class="logo" x="20" y="68" xml:space="preserve">██████╔╝██║██║     ███████╗███████║██████╔╝   ██║   </text>
+  <text class="logo" x="20" y="86" xml:space="preserve">██╔═══╝ ██║██║     ╚════██║██╔══██║██╔══██╗   ██║   </text>
+  <text class="logo" x="20" y="104" xml:space="preserve">██║     ██║╚██████╗███████║██║  ██║██║  ██║   ██║   </text>
+  <text class="logo" x="20" y="122" xml:space="preserve">╚═╝     ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   </text>
+  <text class="logo" x="20" y="156" xml:space="preserve"> ██████╗ ███████╗███╗   ██╗      █████╗ ██╗</text>
+  <text class="logo" x="20" y="174" xml:space="preserve">██╔════╝ ██╔════╝████╗  ██║     ██╔══██╗██║</text>
+  <text class="logo" x="20" y="192" xml:space="preserve">██║  ███╗█████╗  ██╔██╗ ██║     ███████║██║</text>
+  <text class="logo" x="20" y="210" xml:space="preserve">██║   ██║██╔══╝  ██║╚██╗██║     ██╔══██║██║</text>
+  <text class="logo" x="20" y="228" xml:space="preserve">╚██████╔╝███████╗██║ ╚████║     ██║  ██║██║</text>
+</svg>
