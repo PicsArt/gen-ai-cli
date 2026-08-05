@@ -8,6 +8,10 @@
 import { mkdirSync, writeFileSync, readFileSync, copyFileSync, cpSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+const PUBLIC_REPO = 'PicsArt/gen-ai-cli';
+const PUBLIC_REPO_URL = `https://github.com/${PUBLIC_REPO}`;
+const BANNER_URL = `https://raw.githubusercontent.com/${PUBLIC_REPO}/main/banner.svg`;
+
 // 1. Create bin entry point — imports main() from the bundle
 mkdirSync('dist/bin', { recursive: true });
 writeFileSync('dist/bin/gen-ai.mjs', `#!/usr/bin/env node
@@ -63,19 +67,32 @@ if (pkg.dependencies) {
   }
 }
 
-writeFileSync('dist/package.json', JSON.stringify(pkg, null, 2) + '\n');
-console.log('Patched dist/package.json');
+pkg.repository = { type: 'git', url: `git+${PUBLIC_REPO_URL}.git` };
+pkg.bugs = { url: `${PUBLIC_REPO_URL}/issues` };
 
-// 3. Copy banner.svg + README.md (with banner inlined as data URI so it
-//    renders on npmjs.com — npm doesn't rewrite relative paths for non-GitHub
-//    repos, and serves the README on its own origin)
+writeFileSync('dist/package.json', JSON.stringify(pkg, null, 2) + '\n');
+console.log(`Patched dist/package.json (repository → ${PUBLIC_REPO})`);
+
+// 3. Copy banner.svg + README.md, rewriting the banner to an absolute URL.
+//
+//    npm serves the README on its own origin, so the source's relative
+//    ./banner.svg cannot resolve there — it needs an absolute https URL.
+//    It must NOT be a `data:` URI: both npm and GitHub strip those from
+//    <img src>, which is why the previously inlined banner rendered broken on
+//    both surfaces. GitHub raw serves .svg as image/svg+xml, so it displays.
+//
+//    The GitHub README keeps the relative ./banner.svg (resolves in-repo);
+//    only the npm copy in dist/ gets the absolute URL.
 copyFileSync('banner.svg', 'dist/banner.svg');
 
-const svg = readFileSync('banner.svg', 'utf-8');
-const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-const readme = readFileSync('README.md', 'utf-8').replace(/\.\/banner\.svg/g, dataUri);
-writeFileSync('dist/README.md', readme);
-console.log('Copied banner.svg + inlined-banner README.md to dist/');
+const sourceReadme = readFileSync('README.md', 'utf-8');
+if (!sourceReadme.includes('./banner.svg')) {
+  console.error('error: README.md no longer references ./banner.svg — the npm banner rewrite would silently no-op.');
+  console.error('       Keep the source reference relative; only dist/README.md gets the absolute URL.');
+  process.exit(1);
+}
+writeFileSync('dist/README.md', sourceReadme.replaceAll('./banner.svg', BANNER_URL));
+console.log('Copied banner.svg + README.md (absolute banner URL) to dist/');
 
 // 4. Ship the agent skills. `gen-ai install-skills` copies these to
 //    ~/.claude/skills, so they must be in the tarball — without this step the
