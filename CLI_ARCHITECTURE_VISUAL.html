@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gen-ai CLI — Architecture</title>
+<style>
+  :root {
+    --bg:        #0d0d10;
+    --bg-soft:   #16161a;
+    --bg-elev:   #1d1d22;
+    --line:      #2a2a32;
+    --line-soft: #20202a;
+    --fg:        #ececef;
+    --fg-dim:    #9a9aa3;
+    --fg-mute:   #65656d;
+    --brand:     #E859B4;
+
+    --l1: #6b7280;
+    --l2: #94a3b8;
+    --l3: #a78bfa;  /* definitions     */
+    --l4: #f59e0b;  /* pipeline        */
+    --l5: #34d399;  /* shells          */
+
+    --ok:   #22c55e;
+    --warn: #f59e0b;
+    --err:  #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+
+  /* ─── header ─── */
+  header {
+    padding: 22px 32px 16px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-soft), var(--bg));
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: 0.2px;
+    color: var(--brand);
+    font-weight: 600;
+  }
+  header .sub {
+    color: var(--fg-dim);
+    font-size: 13px;
+    max-width: 880px;
+  }
+  header .sub b { color: var(--fg); font-weight: 600; }
+
+  /* ─── tabs ─── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 32px 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .tab {
+    padding: 10px 16px;
+    color: var(--fg-dim);
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.active {
+    color: var(--brand);
+    border-bottom-color: var(--brand);
+  }
+
+  /* ─── panel ─── */
+  .panel { display: none; padding: 24px 32px 80px; }
+  .panel.active { display: block; }
+
+  /* ─── layers ─── */
+  .layer-stack { display: grid; gap: 18px; max-width: 1200px; margin: 0 auto; }
+
+  .layer {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg-soft);
+    overflow: hidden;
+    position: relative;
+    transition: border-color .2s;
+  }
+  .layer:hover { border-color: var(--line-soft); }
+
+  .layer-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-elev);
+  }
+  .layer-num {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 22px;
+    font-weight: 700;
+    width: 42px;
+    text-align: center;
+    letter-spacing: -1px;
+  }
+  .layer-title { flex: 1; }
+  .layer-title h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+  }
+  .layer-title .layer-sub {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .layer-tag {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--fg-dim);
+    font-family: "SF Mono", monospace;
+  }
+
+  /* layer accent bars */
+  .layer.l1 .layer-num { color: var(--l1); }
+  .layer.l1 { border-left: 3px solid var(--l1); }
+  .layer.l2 .layer-num { color: var(--l2); }
+  .layer.l2 { border-left: 3px solid var(--l2); }
+  .layer.l3 .layer-num { color: var(--l3); }
+  .layer.l3 { border-left: 3px solid var(--l3); }
+  .layer.l4 .layer-num { color: var(--l4); }
+  .layer.l4 { border-left: 3px solid var(--l4); }
+  .layer.l5 .layer-num { color: var(--l5); }
+  .layer.l5 { border-left: 3px solid var(--l5); }
+
+  .blocks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    padding: 16px 20px;
+  }
+  .block {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 11px 14px;
+    cursor: pointer;
+    position: relative;
+    transition: border-color .15s, transform .15s, background .15s;
+  }
+  .block:hover {
+    border-color: var(--brand);
+    transform: translateY(-1px);
+    background: var(--bg-elev);
+  }
+  .block .name {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 13px;
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+  .block .desc {
+    font-size: 12px;
+    color: var(--fg-dim);
+    line-height: 1.4;
+  }
+  .block.active {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(232, 89, 180, 0.15);
+  }
+  .block.flow-active {
+    border-color: var(--warn);
+    background: rgba(245, 158, 11, 0.06);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+  }
+  .block.flow-active .name { color: var(--warn); }
+
+  /* ─── detail panel ─── */
+  #detail {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 440px;
+    max-width: 90vw;
+    background: var(--bg-elev);
+    border-left: 1px solid var(--line);
+    box-shadow: -10px 0 30px rgba(0,0,0,0.4);
+    transform: translateX(100%);
+    transition: transform .25s ease;
+    z-index: 50;
+    overflow-y: auto;
+    padding: 24px 28px;
+  }
+  #detail.open { transform: translateX(0); }
+  #detail .close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    border: none;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  #detail .close:hover { color: var(--fg); }
+  #detail h3 {
+    margin: 0 0 6px;
+    font-family: "SF Mono", monospace;
+    font-size: 16px;
+    color: var(--brand);
+  }
+  #detail .crumb {
+    font-size: 11px;
+    color: var(--fg-mute);
+    margin-bottom: 18px;
+    font-family: "SF Mono", monospace;
+  }
+  #detail .section { margin: 18px 0; }
+  #detail .section h4 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-mute);
+    font-weight: 600;
+  }
+  #detail .section p { margin: 0 0 8px; color: var(--fg); line-height: 1.6; }
+  #detail .pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  #detail .pill {
+    font-family: "SF Mono", monospace;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--fg-dim);
+  }
+  #detail .pill.x { color: var(--ok); border-color: rgba(34, 197, 94, 0.3); }
+  #detail code {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 12px;
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+  }
+  #detail pre {
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 12px;
+    overflow-x: auto;
+    color: var(--fg);
+  }
+
+  /* ─── flow tab ─── */
+  .flow-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 1200px;
+    margin: 0 auto 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg-soft);
+  }
+  .flow-controls .step-num {
+    font-family: "SF Mono", monospace;
+    font-size: 12px;
+    color: var(--fg-mute);
+    min-width: 60px;
+  }
+  .flow-controls .step-text {
+    flex: 1;
+    color: var(--fg);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .flow-controls .step-text b { color: var(--warn); font-weight: 600; }
+  .flow-controls button {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fg);
+    padding: 8px 14px;
+    font: inherit;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .flow-controls button:hover {
+    border-color: var(--brand);
+    background: var(--bg-elev);
+  }
+  .flow-controls button:disabled {
+    color: var(--fg-mute);
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .flow-controls .progress {
+    height: 4px;
+    flex: 2;
+    background: var(--bg);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .flow-controls .progress > div {
+    height: 100%;
+    background: var(--warn);
+    transition: width .35s ease;
+    border-radius: 2px;
+  }
+
+  /* ─── glossary tab ─── */
+  .glossary-search {
+    max-width: 1200px;
+    margin: 0 auto 16px;
+  }
+  .glossary-search input {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-soft);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: inherit;
+    outline: none;
+  }
+  .glossary-search input:focus { border-color: var(--brand); }
+  .glossary {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+  }
+  .glossary .gitem {
+    border: 1px solid var(--line);
+    background: var(--bg-soft);
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .glossary .gitem:hover { border-color: var(--brand); }
+  .glossary .gitem .gtitle {
+    font-family: "SF Mono", monospace;
+    font-size: 13px;
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+  .glossary .gitem .gpath {
+    font-family: "SF Mono", monospace;
+    font-size: 10px;
+    color: var(--fg-mute);
+    margin-bottom: 6px;
+  }
+  .glossary .gitem .gdesc {
+    font-size: 12px;
+    color: var(--fg-dim);
+    line-height: 1.4;
+  }
+  .glossary .gitem.hidden { display: none; }
+
+  /* ─── footer note ─── */
+  .note {
+    max-width: 1200px;
+    margin: 24px auto 0;
+    padding: 14px 18px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    color: var(--fg-dim);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .note b { color: var(--fg); font-weight: 600; }
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    max-width: 1200px;
+    margin: 0 auto 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    background: var(--bg-soft);
+  }
+  .legend .lg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .legend .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>gen-ai CLI — Architecture</h1>
+  <p class="sub">
+    Five layers, top-down: <b>01-infrastructure</b> → <b>02-services</b> → <b>03-definitions</b> → <b>04-pipeline</b> → <b>05-shells</b>.
+    Every layer depends only on the ones <i>below</i>; <code>dependency-cruiser</code> blocks any upstream import.
+    Click a block for details. Switch to <b>Request flow</b> to trace a single <code>gen-ai &lt;command&gt;</code> invocation.
+  </p>
+</header>
+
+<div class="tabs" role="tablist">
+  <div class="tab active" data-tab="overview">Overview</div>
+  <div class="tab" data-tab="flow">Request flow</div>
+  <div class="tab" data-tab="glossary">Glossary</div>
+</div>
+
+<!-- ═══════════════ OVERVIEW ═══════════════ -->
+<section class="panel active" id="panel-overview">
+
+  <div class="legend">
+    <div class="lg"><span class="swatch" style="background: var(--l5)"></span>05-shells — what the user types</div>
+    <div class="lg"><span class="swatch" style="background: var(--l4)"></span>04-pipeline — request-time stages</div>
+    <div class="lg"><span class="swatch" style="background: var(--l3)"></span>03-definitions — declarative data</div>
+    <div class="lg"><span class="swatch" style="background: var(--l2)"></span>02-services — auth, HTTP, persistence</div>
+    <div class="lg"><span class="swatch" style="background: var(--l1)"></span>01-infrastructure — primitives</div>
+  </div>
+
+  <div class="layer-stack" id="stack"></div>
+
+  <div class="note">
+    <b>Import direction.</b> Read the diagram top-to-bottom — top layers depend on lower ones, never the other way around.
+    A command file in 05-shells can import anything below it; an infrastructure primitive cannot reach back up. The
+    runtime pipeline does the opposite: a request <i>flows down</i> from the user to infrastructure, then results
+    <i>flow back up</i> to the terminal. See <b>Request flow</b> for the trace.
+  </div>
+</section>
+
+<!-- ═══════════════ REQUEST FLOW ═══════════════ -->
+<section class="panel" id="panel-flow">
+
+  <div class="flow-controls">
+    <span class="step-num" id="flow-num">step 0/8</span>
+    <span class="step-text" id="flow-text">Press <b>Start</b> to trace <code>gen-ai change-bg -i ./photo.jpg -p "neon street"</code> through the pipeline.</span>
+    <div class="progress"><div id="flow-bar" style="width: 0"></div></div>
+    <button id="flow-prev" disabled>◀ Prev</button>
+    <button id="flow-next">Start ▶</button>
+    <button id="flow-reset">↺</button>
+  </div>
+
+  <div class="layer-stack" id="stack-flow"></div>
+
+  <div class="note">
+    <b>Why this order matters.</b> The same pipeline drives all 20 operation commands. The factory at
+    <code>05-shells/01-command-builder/builder.ts</code> calls these stages in this exact sequence for every
+    flow — only the FlowSpec changes per command, never the orchestration.
+  </div>
+</section>
+
+<!-- ═══════════════ GLOSSARY ═══════════════ -->
+<section class="panel" id="panel-glossary">
+
+  <div class="glossary-search">
+    <input id="g-search" placeholder="Search blocks (e.g. resolve, flow, error, drive, builder…)" autocomplete="off">
+  </div>
+
+  <div class="glossary" id="glossary"></div>
+</section>
+
+<!-- ═══════════════ DETAIL SIDE PANEL ═══════════════ -->
+<aside id="detail" aria-hidden="true">
+  <button class="close" aria-label="Close">✕</button>
+  <div class="crumb" id="d-crumb"></div>
+  <h3 id="d-title"></h3>
+
+  <div class="section">
+    <h4>Responsibility</h4>
+    <p id="d-desc"></p>
+  </div>
+
+  <div class="section" id="d-exports-wrap">
+    <h4>Public surface</h4>
+    <div class="pill-list" id="d-exports"></div>
+  </div>
+
+  <div class="section" id="d-not-wrap">
+    <h4>Does NOT do</h4>
+    <p id="d-not"></p>
+  </div>
+
+  <div class="section" id="d-deps-wrap">
+    <h4>Reads from</h4>
+    <div class="pill-list" id="d-deps"></div>
+  </div>
+</aside>
+
+<script>
+/* ─────────────────────────────────────────────────────────────
+   Architecture data model. Each block: { id, name, desc, exports,
+   does_not, deps }. Block ids are stable; flow steps reference them.
+   ─────────────────────────────────────────────────────────────  */
+const ARCH = [
+  {
+    num: '01',
+    cls: 'l1',
+    title: 'Infrastructure',
+    sub: 'Primitives — no upstream layer dependencies. Errors, flags, UI, utils.',
+    tag: 'src/01-infrastructure/',
+    blocks: [
+      { id: 'errors',  name: 'errors/',  desc: 'Typed CliError hierarchy (Usage, Auth, Api, Validation, Credits, File, Network).',
+        exports: ['CliError', 'UsageError', 'AuthError', 'ApiError', 'ValidationError', 'InsufficientCreditsError', 'FileError', 'NetworkError', 'ExitCode'],
+        does_not: 'Catch errors or render them to the terminal — that is BaseCommand.catch().', deps: [] },
+      { id: 'flags',   name: 'flags/',   desc: 'Shared oclif Flag definitions: base, output, model, generation, kling-dsl.',
+        exports: ['baseFlags', 'outputFlags', 'modelFlags', 'generationFlags', 'kling-dsl flags'],
+        does_not: 'Compose flow-specific FlagSets — that is 03-definitions/02-flows/03-compose.', deps: [] },
+      { id: 'ui-core', name: 'ui-core/', desc: 'Pure UI primitives: ColorManager, OutputManager, spinner, card/badge/divider/key-value/table renderers.',
+        exports: ['createColorManager', 'createOutputManager', 'createSpinner', 'renderCard', 'renderKeyValue', 'renderBadge', 'renderTable'],
+        does_not: 'Decide what to render — only how to render lines and colors.', deps: [] },
+      { id: 'ui',      name: 'ui/',      desc: 'High-level terminal output: banner, prompt-box, custom-help, theme.',
+        exports: ['printBanner', 'promptWithCommandBox', 'showCardHelp', 'inquirerTheme', 'safePrompt'],
+        does_not: 'Process user input for resolution — that is the wizard runner in 04-pipeline.', deps: ['ui-core'] },
+      { id: 'utils',   name: 'utils/',   desc: 'Fuzzy match, locale, badge-priority, pool, media-types, session-id, terminal-image, debug-log.',
+        exports: ['fuzzyFilter', 'getLocaleInfo', 'badgePriority', 'runPool', 'detectMediaType', 'getSessionId', 'previewUrl', 'writeDebugLog'],
+        does_not: 'Hold state across requests — every helper is pure or scoped.', deps: [] },
+    ],
+  },
+  {
+    num: '02',
+    cls: 'l2',
+    title: 'Services',
+    sub: 'Auth, HTTP, SDK client, persistence. Single SDK-client entry point.',
+    tag: 'src/02-services/',
+    blocks: [
+      { id: 'client',      name: 'client.ts',          desc: 'The ONLY SDK-client entry. getAiClient() builds a createClient() from @picsart/ai-sdk; getAuthenticatedFetch() wraps fetch with auto-token-refresh.',
+        exports: ['getAiClient()', 'getAuthenticatedFetch()'],
+        does_not: 'Talk to disk for tokens — auth.ts does that. Drive operations go through ai.drive.*.', deps: ['errors', 'constants', 'auth'] },
+      { id: 'auth',        name: 'auth.ts',            desc: 'Credential lifecycle: getToken(), loadCredentials(), persistence.',
+        exports: ['getToken()', 'loadCredentials()', 'login()', 'logout()'],
+        does_not: 'Re-authenticate on its own — the authenticated fetch re-reads creds on every request.', deps: ['errors'] },
+      { id: 'file-upload', name: 'file-upload.ts',     desc: 'Local file path → CDN URL. resolveAllFiles() walks every file slot and uploads anything that is not already an URL.',
+        exports: ['uploadFile()', 'resolveFileInput()', 'resolveAllFiles()', 'isLocalFile()'],
+        does_not: 'Decide WHEN to upload — the resolver dispatcher does that.', deps: ['constants'] },
+      { id: 'user-config', name: 'user-config.ts',     desc: 'User-level CLI settings on disk (downloadDir, autoClipboard, drive folder…).',
+        exports: ['getUserConfig()', 'setUserConfig()', 'UserConfig type'],
+        does_not: 'Validate values — keys are loose; commands enforce shape on read.', deps: [] },
+      { id: 'drive',       name: 'drive.ts',           desc: 'Drive operations: ensureRootFolder, ensureSubfolder, saveFileToDrive. All routed through getAiClient().',
+        exports: ['ensureRootFolder()', 'ensureSubfolder()', 'saveFileToDrive()'],
+        does_not: 'Compose attribute metadata — that is the 04-output drive-save helper.', deps: ['client'] },
+      { id: 'history',     name: 'history.ts',         desc: 'Append-only history log of every generation. Used by redo, history list, extend chaining.',
+        exports: ['appendHistory()', 'getLastEntry()', 'listHistory()', 'clearHistory()'],
+        does_not: 'Store binary results — only URLs and metadata.', deps: [] },
+      { id: 'constants',   name: 'constants.ts',       desc: 'API URLs, version, makeHeaders(), resolveUserPath().',
+        exports: ['getApiUrl()', 'getUploadUrl()', 'CLI_VERSION', 'makeHeaders()', 'resolveUserPath()'],
+        does_not: 'Anything that requires runtime auth.', deps: [] },
+    ],
+  },
+  {
+    num: '03',
+    cls: 'l3',
+    title: 'Definitions — Param Surface',
+    sub: 'SDK paramConfig → CLI shapes. Catalog, descriptors, readers. Pure data transforms.',
+    tag: 'src/03-definitions/01-param-surface/',
+    blocks: [
+      { id: 'aliases-coercion', name: '01-primitives/', desc: 'ALIAS_MAP (short flags + char chars) + camelToKebab() coercion. Pure data.',
+        exports: ['ALIAS_MAP', 'camelToKebab()', 'coerceFlagValue()'],
+        does_not: 'Generate flag objects — only the alias data the flag generator reads.', deps: [] },
+      { id: 'catalog',          name: '02-catalog/',    desc: 'loadCatalog() walks every model paramConfig once and produces a merged ParamSurface index keyed by SDK key and by flag name.',
+        exports: ['loadCatalog()', 'getCatalog()', 'Catalog type', 'ParamSurface type', 'ParamConflictError'],
+        does_not: 'Filter by flow — see 02-flows/01-static/03-catalog-filter.', deps: ['aliases-coercion'] },
+      { id: 'schema',           name: '03-describe/',   desc: 'generateFlagsFromCatalog() → oclif FlagSet. generateWizardStepsFromCatalog() → WizardStep[]. One catalog, two shapes.',
+        exports: ['generateFlagsFromCatalog()', 'generateWizardStepsFromCatalog()'],
+        does_not: 'Cover static (no-descriptor) flags — those live in 02-flows/01-static.', deps: ['catalog'] },
+      { id: 'reader',           name: '04-interpret/',  desc: 'readFlagsIntoContext() and readWizardAnswersIntoContext() — convert parsed inputs into SDK GenerationContext keys.',
+        exports: ['readFlagsIntoContext()', 'readWizardAnswersIntoContext()'],
+        does_not: 'Send to the SDK — only build the ctx object.', deps: ['catalog'] },
+    ],
+  },
+  {
+    num: '03',
+    cls: 'l3',
+    title: 'Definitions — Flows',
+    sub: 'Declarative flow registry. 21 FlowSpecs, static groups, composer.',
+    tag: 'src/03-definitions/02-flows/',
+    blocks: [
+      { id: 'static',   name: '01-static/',  desc: 'Hand-maintained groups: static-flags (universal/output/model/prompt-input), static-steps (output/confirm), catalog-filter, tool-id-match.',
+        exports: ['STATIC_FLAG_GROUPS', 'STATIC_STEP_GROUPS', 'filterCatalog()', 'hasToolIdMatching()'],
+        does_not: 'Reference any model — fully data-only.', deps: [] },
+      { id: 'registry', name: '02-registry/', desc: 'FlowSpec type + 21 declared FLOWS (generate + 20 specialized). Each picks models via modelFilter, declares requiredInputs and static groups.',
+        exports: ['FlowSpec', 'defineFlow()', 'FLOWS', 'FlowId'],
+        does_not: 'Define HOW to compose flags — only WHICH groups to include.', deps: ['static'] },
+      { id: 'composer', name: '03-compose/',  desc: 'composeFlagsForFlow() merges descriptor-derived flags with static groups. composeWizardForFlow() merges descriptor steps with static step groups.',
+        exports: ['composeFlagsForFlow()', 'composeWizardForFlow()'],
+        does_not: 'Run any prompt — only emits the schema the runner consumes.', deps: ['registry', 'static', 'catalog', 'schema'] },
+    ],
+  },
+  {
+    num: '04',
+    cls: 'l4',
+    title: 'Pipeline',
+    sub: 'Request-time stages: wizard runner, resolve, execute, output.',
+    tag: 'src/04-pipeline/',
+    blocks: [
+      { id: 'wizard-runner', name: '01-wizard-runner/', desc: '5-step interactive resolver: model → files → params → prompt → confirm. BACK / CANCEL / SKIP navigation.',
+        exports: ['resolveInteractive()', 'runWizard()', 'selectWithNav()', 'searchWithNav()'],
+        does_not: 'Run in scripted mode — see 02-resolve/scripted.', deps: ['ui-core', 'ui', 'utils', 'catalog', 'schema', 'reader', 'registry'] },
+      { id: 'resolve',       name: '02-resolve/',       desc: 'Dispatcher. normalizePromptInput (stdin / --prompt-file → flags.prompt), routes to interactive or scripted, uploads local files to URLs.',
+        exports: ['resolveInputs()', 'resolveScripted()', 'normalizePromptInput()', 'buildParamsFromFlags()'],
+        does_not: 'Talk to the model SDK — that is 03-execution.', deps: ['wizard-runner', 'file-upload', 'client', 'errors', 'reader', 'registry'] },
+      { id: 'execution',     name: '03-execution/',     desc: 'Sync vs async SDK routing. execute() picks the right path; validate() dry-runs payloads. Abort-signal-aware progress.',
+        exports: ['execute()', 'executeSyncModel()', 'executeAsyncModel()', 'validateDryRun()'],
+        does_not: 'Upload files — inputs.files already contain URLs by here.', deps: ['client'] },
+      { id: 'output',        name: '04-output/',        desc: 'display → download → drive-save → history → extras. Non-critical failures degrade to warnings, never throw.',
+        exports: ['handleOutput()', 'displayResult()', 'downloadToDir()', 'saveToDrive()', 'runExtras()'],
+        does_not: 'Talk to the model SDK or upload anything new.', deps: ['ui-core', 'ui', 'utils', 'drive', 'history'] },
+    ],
+  },
+  {
+    num: '05',
+    cls: 'l5',
+    title: 'Shells',
+    sub: 'What the user invokes. Command builder, command files, REPL entry.',
+    tag: 'src/05-shells/',
+    blocks: [
+      { id: 'command-builder', name: '01-command-builder/', desc: 'createOperationCommand(flow) factory + runOperation pipeline driver. 20 operation commands collapse to one-liners via this.',
+        exports: ['createOperationCommand()', 'runOperation()'],
+        does_not: 'Handle utility commands (login, config, etc.) — they are bespoke.', deps: ['composer', 'catalog', 'resolve', 'execution', 'output', 'client'] },
+      { id: 'commands',        name: '02-commands/',        desc: '20 operations/<id>.ts one-liners + auth/, drive/, batch/, config/, history/, models/ subgroups + standalone utilities.',
+        exports: ['20 operation Command classes', '~15 utility Command classes'],
+        does_not: 'Reimplement pipeline logic — every operation goes through createOperationCommand.', deps: ['command-builder', 'registry'] },
+      { id: 'entry',           name: '03-entry/',           desc: 'REPL backend: menu, shortcuts, command dispatching for the interactive shell.',
+        exports: ['startRepl()', 'MENU_REGISTRY', 'SHORTCUTS'],
+        does_not: 'Define commands — it consumes COMMANDS from commands-manifest.', deps: ['commands'] },
+    ],
+  },
+];
+
+/* Flat block index (id → block + layer info) */
+const INDEX = {};
+ARCH.forEach((layer, li) => {
+  layer.blocks.forEach(b => {
+    INDEX[b.id] = { ...b, layerNum: layer.num, layerCls: layer.cls, layerTitle: layer.title, layerTag: layer.tag };
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+   Render the layer stack into a target element.
+   ───────────────────────────────────────────────────────────── */
+function renderStack(target) {
+  const root = document.getElementById(target);
+  root.innerHTML = '';
+  ARCH.slice().reverse().forEach(layer => {
+    const el = document.createElement('div');
+    el.className = `layer ${layer.cls}`;
+    el.innerHTML = `
+      <div class="layer-head">
+        <div class="layer-num">${layer.num}</div>
+        <div class="layer-title">
+          <h2>${layer.title}</h2>
+          <div class="layer-sub">${layer.sub}</div>
+        </div>
+        <div class="layer-tag">${layer.tag}</div>
+      </div>
+      <div class="blocks">
+        ${layer.blocks.map(b => `
+          <div class="block" data-block="${b.id}">
+            <div class="name">${b.name}</div>
+            <div class="desc">${b.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    root.appendChild(el);
+  });
+  // Wire clicks
+  root.querySelectorAll('.block').forEach(el => {
+    el.addEventListener('click', () => openDetail(el.dataset.block));
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Detail panel
+   ───────────────────────────────────────────────────────────── */
+const $detail = document.getElementById('detail');
+function openDetail(id) {
+  const b = INDEX[id];
+  if (!b) return;
+  document.getElementById('d-crumb').textContent = `${b.layerTag}${b.name}`;
+  document.getElementById('d-title').textContent = b.name;
+  document.getElementById('d-desc').textContent = b.desc;
+
+  const ex = document.getElementById('d-exports');
+  ex.innerHTML = b.exports.length
+    ? b.exports.map(e => `<span class="pill">${e}</span>`).join('')
+    : '<span style="color: var(--fg-mute); font-size: 12px;">(none)</span>';
+  document.getElementById('d-exports-wrap').style.display = b.exports.length ? '' : 'none';
+
+  document.getElementById('d-not').textContent = b.does_not;
+  document.getElementById('d-not-wrap').style.display = b.does_not ? '' : 'none';
+
+  const deps = document.getElementById('d-deps');
+  deps.innerHTML = b.deps.length
+    ? b.deps.map(d => `<span class="pill x">${INDEX[d]?.name ?? d}</span>`).join('')
+    : '<span style="color: var(--fg-mute); font-size: 12px;">(none — leaf)</span>';
+
+  document.querySelectorAll('.block').forEach(el => el.classList.toggle('active', el.dataset.block === id));
+
+  $detail.classList.add('open');
+  $detail.setAttribute('aria-hidden', 'false');
+}
+function closeDetail() {
+  $detail.classList.remove('open');
+  $detail.setAttribute('aria-hidden', 'true');
+  document.querySelectorAll('.block.active').forEach(el => el.classList.remove('active'));
+}
+$detail.querySelector('.close').addEventListener('click', closeDetail);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeDetail();
+});
+
+/* ─────────────────────────────────────────────────────────────
+   Tabs
+   ───────────────────────────────────────────────────────────── */
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+    const id = t.dataset.tab;
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${id}`));
+    if (id === 'flow') resetFlow();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+   Glossary
+   ───────────────────────────────────────────────────────────── */
+function renderGlossary() {
+  const root = document.getElementById('glossary');
+  root.innerHTML = Object.values(INDEX).map(b => `
+    <div class="gitem" data-block="${b.id}" data-text="${(b.name + ' ' + b.desc + ' ' + b.exports.join(' ')).toLowerCase()}">
+      <div class="gtitle">${b.name}</div>
+      <div class="gpath">${b.layerTag}</div>
+      <div class="gdesc">${b.desc}</div>
+    </div>
+  `).join('');
+  root.querySelectorAll('.gitem').forEach(el => {
+    el.addEventListener('click', () => openDetail(el.dataset.block));
+  });
+}
+document.getElementById('g-search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.gitem').forEach(el => {
+    el.classList.toggle('hidden', q.length > 0 && !el.dataset.text.includes(q));
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+   Request flow walkthrough
+   ───────────────────────────────────────────────────────────── */
+const FLOW_STEPS = [
+  {
+    blocks: ['commands'],
+    text: 'User runs <code>gen-ai change-bg -i ./photo.jpg -p "neon street"</code>. <b>02-commands/operations/change-bg.ts</b> (a 6-line file) loads <code>FLOWS["change-bg"]</code> and delegates to the builder.',
+  },
+  {
+    blocks: ['commands', 'command-builder'],
+    text: '<b>01-command-builder</b> resolves <code>composeFlagsForFlow(FLOWS["change-bg"], catalog, models)</code> at class-load and oclif parses the user\'s args against that flag set. <code>runOperation()</code> takes over.',
+  },
+  {
+    blocks: ['command-builder', 'resolve'],
+    text: '<b>04-pipeline/02-resolve</b>: <code>normalizePromptInput</code> runs first (stdin / --prompt-file → flags.prompt). TTY + no --no-input → interactive wizard; otherwise scripted resolver.',
+  },
+  {
+    blocks: ['resolve', 'wizard-runner', 'composer', 'schema'],
+    text: 'Interactive path: <b>01-wizard-runner</b> runs the 5-step wizard, consuming <code>WizardStep[]</code> built by the <b>composer</b> from the FlowSpec + Param Surface schema. Scripted path: <code>resolveScripted</code> reads the flag bag through the <b>reader</b>.',
+  },
+  {
+    blocks: ['resolve', 'file-upload'],
+    text: 'Local file paths get uploaded to CDN URLs via <b>02-services/file-upload.ts</b>. By the time <code>ResolvedInputs</code> leaves the resolver, every entry in <code>inputs.files</code> is an <code>https://</code> URL.',
+  },
+  {
+    blocks: ['command-builder', 'execution', 'client'],
+    text: '<b>04-pipeline/03-execution</b>: <code>execute(inputs, deps, options)</code> calls <code>getAiClient()</code> from <b>02-services/client.ts</b> (the single SDK entry) and routes sync or async based on the model. Spinner + SIGINT abort wired around it.',
+  },
+  {
+    blocks: ['execution', 'output'],
+    text: '<b>04-pipeline/04-output</b>: <code>handleOutput(result, config, deps, driveCtx)</code> runs display → download → drive-save (via <b>02-services/drive</b>) → history append → extras (clipboard, open, bell, notify). Failures in any non-critical step become warnings.',
+  },
+  {
+    blocks: ['output', 'commands'],
+    text: 'Process exits 0 on completion. The user sees: a colored summary card, the downloaded file path (if any), and the Drive URL (if saved). <code>commands/redo</code> can replay the run by reading <b>02-services/history.ts</b>.',
+  },
+];
+
+let flowIdx = 0;
+const $num = document.getElementById('flow-num');
+const $txt = document.getElementById('flow-text');
+const $bar = document.getElementById('flow-bar');
+const $next = document.getElementById('flow-next');
+const $prev = document.getElementById('flow-prev');
+const $reset = document.getElementById('flow-reset');
+
+function applyFlow(step) {
+  const flowStack = document.getElementById('stack-flow');
+  flowStack.querySelectorAll('.block').forEach(el => el.classList.remove('flow-active'));
+  if (step === 0) {
+    $num.textContent = `step 0/${FLOW_STEPS.length}`;
+    $txt.innerHTML = 'Press <b>Start</b> to trace <code>gen-ai change-bg -i ./photo.jpg -p "neon street"</code> through the pipeline.';
+    $bar.style.width = '0';
+    return;
+  }
+  const f = FLOW_STEPS[step - 1];
+  $num.textContent = `step ${step}/${FLOW_STEPS.length}`;
+  $txt.innerHTML = f.text;
+  $bar.style.width = `${(step / FLOW_STEPS.length) * 100}%`;
+  f.blocks.forEach(id => {
+    flowStack.querySelectorAll(`.block[data-block="${id}"]`).forEach(el => el.classList.add('flow-active'));
+  });
+}
+function resetFlow() {
+  flowIdx = 0;
+  applyFlow(0);
+  $prev.disabled = true;
+  $next.disabled = false;
+  $next.textContent = 'Start ▶';
+}
+$next.addEventListener('click', () => {
+  if (flowIdx < FLOW_STEPS.length) {
+    flowIdx++;
+    applyFlow(flowIdx);
+    $prev.disabled = false;
+    $next.textContent = flowIdx === FLOW_STEPS.length ? 'Done' : 'Next ▶';
+    if (flowIdx === FLOW_STEPS.length) $next.disabled = true;
+  }
+});
+$prev.addEventListener('click', () => {
+  if (flowIdx > 0) {
+    flowIdx--;
+    applyFlow(flowIdx);
+    $next.disabled = false;
+    $next.textContent = flowIdx === 0 ? 'Start ▶' : 'Next ▶';
+    if (flowIdx === 0) $prev.disabled = true;
+  }
+});
+$reset.addEventListener('click', resetFlow);
+
+/* ─────────────────────────────────────────────────────────────
+   Boot
+   ───────────────────────────────────────────────────────────── */
+renderStack('stack');
+renderStack('stack-flow');
+renderGlossary();
+</script>
+</body>
+</html>
