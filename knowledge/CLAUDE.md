@@ -67,6 +67,8 @@ contradictions between pages, stale/superseded claims, orphan pages (no inbound
 `[[links]]`), important concepts lacking a page, missing cross-references, and
 data gaps fillable via web search. Append `## [date] lint | <scope>` to `log.md`.
 
+> Note: `lint-wiki.sh` mechanically checks structure, frontmatter keys/enums, `index.md` link resolution, and `log.md` heading format only. `[[wiki-link]]` resolution and the presence of a `## Related` section are verified in this manual lint pass, not by the script.
+
 ## Scale / future
 
 `index.md` is enough at this scale (~hundreds of pages). When it outgrows the
