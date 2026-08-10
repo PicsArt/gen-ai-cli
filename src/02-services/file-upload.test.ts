@@ -104,6 +104,28 @@ describe('uploadFile — happy path', () => {
     expect(capturedHeaders.Authorization).toBe('Bearer my-token');
     expect(capturedHeaders['user-id']).toBe('usr-99');
   });
+
+  it.each([
+    ['photo.heic', 'image/heic'],
+    ['photo.avif', 'image/avif'],
+    ['clip.mov', 'video/quicktime'],
+    ['take.m4a', 'audio/mp4'],
+    ['legacy.png', 'image/png'],
+    ['mystery.xyz', 'application/octet-stream'],
+  ])('uploading %s sends Content-Type %s', async (filename, expectedType) => {
+    const filePath = path.join(tmpDir, filename);
+    fs.writeFileSync(filePath, 'x');
+
+    let capturedType: string | undefined;
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = init?.body as FormData;
+      capturedType = (body.get('file') as File | Blob | null)?.type;
+      return new Response(JSON.stringify({ url: 'https://x' }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await uploadFile(filePath, { token: 't', uid: 'u' });
+    expect(capturedType).toBe(expectedType);
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */

@@ -12,10 +12,14 @@ const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.heic': 'image/heic',
+  '.avif': 'image/avif',
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
 };
 
 export interface UploadOptions {

@@ -141,6 +141,33 @@ All operations follow the same pipeline: parse flags → resolve inputs (interac
 | `gen-ai download <uid>` | Download a Drive file |
 | `gen-ai list [--folders]` | List Drive folders or files (JSON-ready) |
 
+#### Getting a URL for a local file
+
+Picsart's MCP tools and URL-typed API params need a URL, not a path. `upload`
+returns one — a temporary CDN URL, plus (by default) a Drive save for
+durability. `--json` writes the payload to **stdout**; progress goes to
+stderr, so it's pipe-safe:
+
+```bash
+gen-ai upload photo.png --json | jq -r '.files[0].url'
+```
+
+```json
+{
+  "ok": true,
+  "files": [
+    { "path": "/abs/path/photo.png", "url": "https://cdn.../photo.png", "driveUid": "abc123", "error": null }
+  ]
+}
+```
+
+- `files` is one entry per input, in input order.
+- `ok` is `true` only if every file succeeded; the exit code is non-zero on any failure.
+- `error` is `null` on success, otherwise that file's failure reason — it never
+  discards the others' URLs.
+- `driveUid` is `null` if the Drive save failed; `url` is unaffected — a Drive
+  outage never costs you the upload.
+
 ### History
 
 | Command | What it does |
@@ -240,7 +267,7 @@ echo "logo for a coffee shop" | gen-ai generate -m flux-pro -s
 Combined with `--json`, it composes well with `jq`:
 
 ```bash
-gen-ai generate -m flux-pro -p "tabby cat" -s | jq -r '.result.url'
+gen-ai generate -m flux-pro -p "tabby cat" -s --json | jq -r '.url'
 ```
 
 `--no-input` prevents any interactive prompt — fail fast in CI rather than

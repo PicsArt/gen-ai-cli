@@ -9,10 +9,11 @@ description: |
   image, generate a video, create AI media, remove or change background, enhance or
   upscale an image, vectorize to SVG, browse available models, check gen-ai pricing,
   run batch generations, upload to or download from Picsart Drive, extend a video,
-  or invokes "/gen-ai-use".
+  get a URL for a local file to pass to a Picsart MCP tool or any URL-typed API
+  parameter, or invokes "/gen-ai-use".
 
 allowed-tools: Read, Bash, Grep, Glob
-version: 1.1.0
+version: 1.2.0
 ---
 
 # gen-ai CLI — Usage Guide
@@ -354,6 +355,34 @@ gen-ai upload *.jpg --max-files 100                      # Override 200-file lim
 | `--dry-run` | false | List files without uploading |
 | `--max-files` | 200 | Safety limit on number of files |
 | `--concurrency, -c` | 3 | Parallel uploads |
+
+### Getting a URL for a local file
+
+Picsart MCP tools and URL-typed API params need a URL, not a path — never inline
+a file's bytes to work around this. `--json` puts the payload on **stdout**;
+progress goes to stderr, so stdout is safe to parse directly:
+
+```bash
+gen-ai upload photo.png --json | jq -r '.files[0].url'
+```
+
+```json
+{
+  "ok": true,
+  "files": [
+    { "path": "/abs/path/photo.png", "url": "https://cdn.../photo.png", "driveUid": "abc123", "error": null }
+  ]
+}
+```
+
+- `files` is one entry per input, in input order — index into it, don't assume one file.
+- `url` is what you want: a temporary CDN link for a Picsart MCP tool's URL-typed
+  parameter (`image_url`, `video_url`, `source`, …) or any URL-typed API param.
+  `null` only if that file's upload failed.
+- `error` is `null` on success, else that file's failure reason — other files stay usable.
+- `driveUid` is the durable Drive copy (same save `--folder` above controls);
+  `null` if that save failed, but `url` stays valid either way.
+- `ok` is `true` only when every file succeeded; exit code is non-zero on any failure.
 
 ## Download
 
