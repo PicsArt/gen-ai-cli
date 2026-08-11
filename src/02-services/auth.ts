@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as path from 'node:path';
+import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getOutput } from '#infra/ui-core/output.ts';
 import { openInDefault } from '#infra/utils/open.ts';
 import {
@@ -362,8 +363,14 @@ export async function getToken(): Promise<{ token: string; uid: string }> {
     try {
       const refreshed = await refreshAccessToken();
       return { token: refreshed.token, uid: refreshed.uid };
-    } catch {
-      // Refresh failed — fall through to auto-login
+    } catch (err) {
+      // A transport failure means we never learned whether the credentials are
+      // still good — reporting "not authenticated" here sends the user off to
+      // re-run `gen-ai login`, which cannot fix an offline/sandboxed shell.
+      if (isNetworkError(err)) {
+        throw new NetworkError(`could not refresh the access token (${(err as Error).message})`);
+      }
+      // Genuine rejection from the auth server — fall through to auto-login.
     }
   }
 

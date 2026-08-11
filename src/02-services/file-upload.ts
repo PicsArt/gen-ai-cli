@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { FileError } from '#infra/errors/file.ts';
+import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getUploadUrl, makeHeaders } from '#services/constants.ts';
 
 const MAX_UPLOAD_SIZE = 500 * 1024 * 1024; // 500 MB
@@ -47,12 +48,22 @@ export async function uploadFile(filePath: string, opts: UploadOptions): Promise
   delete headers['Content-Type'];
 
   const UPLOAD_TIMEOUT_MS = 300_000; // 5 minutes for file uploads
-  const res = await fetch(`${getUploadUrl()}/v2/files`, {
-    method: 'POST',
-    headers,
-    body: formData,
-    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${getUploadUrl()}/v2/files`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // Transport failure — surface it as such (exit 4) instead of a generic
+    // "upload failed", so an offline/sandboxed shell is diagnosable.
+    if (isNetworkError(err)) {
+      throw new NetworkError(`upload to ${getUploadUrl()} failed (${(err as Error).message})`);
+    }
+    throw err;
+  }
 
   if (!res.ok) {
     const body = await res.text();

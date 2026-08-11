@@ -26,6 +26,10 @@
  *     - flushes after success
  *     - flushes then re-throws on error
  *     - registers fatal-error handlers (uncaughtException, unhandledRejection)
+ *     - suppresses @pulse/common's two clone-fallback console.warn messages
+ *       (they leak raw tracker state, incl. user/device ids, to stderr) while
+ *       letting every other console.warn through, and restores the original
+ *       console.warn on both success and throw
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -263,5 +267,65 @@ describe('runWithPulse', () => {
       }),
     ).rejects.toBe(err);
     expect(pulseFlushMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ── @pulse/common clone-warning suppression ─────────────────── */
+
+describe('runWithPulse — console.warn filter', () => {
+  // Verbatim from node_modules/@pulse/common/esm/utils/obj-clone.js.
+  const STRUCTURED_CLONE_WARNING = 'structuredClone failed, falling back to deepClonePruningNonStructured';
+  const JSON_FALLBACK_WARNING = 'Deep clone failed using JSON fallback.';
+
+  it('drops the SDK clone warnings (and their leaked state) but passes everything else through', async () => {
+    const seen: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      seen.push(args);
+    };
+
+    try {
+      // Trip the warnings from inside the wrapped window, the way the SDK does:
+      // second arg is the tracker state, which is what actually leaks.
+      pulseSetMock.mockImplementation(() => {
+        console.warn(STRUCTURED_CLONE_WARNING, { userId: 'u-1', appDeviceId: 'd-1' });
+        console.warn(JSON_FALLBACK_WARNING, new Error('nope'));
+      });
+
+      await runWithPulse('1.0.0', async () => {
+        console.warn('something else', 'kept');
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(seen).toEqual([['something else', 'kept']]);
+  });
+
+  it('restores the original console.warn after a successful run', async () => {
+    const originalWarn = console.warn;
+    await runWithPulse('1.0.0', async () => {
+      expect(console.warn).not.toBe(originalWarn); // patched inside the window
+    });
+    expect(console.warn).toBe(originalWarn);
+  });
+
+  it('restores the original console.warn when the wrapped work throws', async () => {
+    const originalWarn = console.warn;
+    await expect(
+      runWithPulse('1.0.0', async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(console.warn).toBe(originalWarn);
+  });
+
+  it('leaves console.warn untouched when PULSE_OPT_OUT=1', async () => {
+    process.env.PULSE_OPT_OUT = '1';
+    const originalWarn = console.warn;
+    await runWithPulse('1.0.0', async () => {
+      expect(console.warn).toBe(originalWarn);
+    });
+    expect(console.warn).toBe(originalWarn);
   });
 });

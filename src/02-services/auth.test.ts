@@ -18,11 +18,15 @@
  *     - prefers PICSART_ACCESS_TOKEN + PICSART_USER_ID env vars when both set
  *     - returns cached token when not yet expired
  *     - throws AuthError when no creds and stdin is not a TTY (CI/non-interactive)
+ *     - throws NetworkError (not AuthError) when the token refresh fails at the
+ *       transport layer — an offline/sandboxed shell is not a credential problem
+ *     - still throws AuthError when the auth server itself rejects the refresh
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { AuthError, ExitCode, NetworkError } from '#infra/errors/index.ts';
 import { type Credentials, getToken, loadCredentials, logout, whoami } from './auth.ts';
 
 let tmpHome: string;
@@ -152,6 +156,53 @@ describe('getToken', () => {
       await expect(getToken()).rejects.toThrow(/Not authenticated|gen-ai login|PICSART_ACCESS_TOKEN/);
     } finally {
       if (orig) Object.defineProperty(process.stdin, 'isTTY', orig);
+    }
+  });
+
+  /* Refresh-failure classification: a transport failure and a rejection from
+     the auth server are different diagnoses and must not collapse into one.
+     Regression guard — these used to share a bare `catch {}` that discarded the
+     real error and reported "Not authenticated" for an offline shell. */
+
+  it('surfaces NetworkError (exit 4) when the token refresh fails at the transport layer', async () => {
+    writeCreds(validCreds({ expiresAt: new Date(Date.now() - 3600_000).toISOString() }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (() => {
+      throw new TypeError('fetch failed', { cause: { code: 'ENOTFOUND' } });
+    }) as unknown as typeof fetch;
+    try {
+      const err = await getToken().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(NetworkError);
+      expect((err as NetworkError).exitCode).toBe(ExitCode.NETWORK_ERROR);
+      expect((err as NetworkError).friendlyMessage).not.toMatch(/Not authenticated/i);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('still surfaces AuthError (exit 3) when the auth server rejects the refresh token', async () => {
+    writeCreds(validCreds({ expiresAt: new Date(Date.now() - 3600_000).toISOString() }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ status: 'error', reason: 'invalid_grant' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch;
+    const origTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    try {
+      const err = await getToken().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(AuthError);
+      expect((err as AuthError).exitCode).toBe(ExitCode.AUTH_ERROR);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (origTty) Object.defineProperty(process.stdin, 'isTTY', origTty);
     }
   });
 });

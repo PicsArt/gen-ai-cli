@@ -1,4 +1,5 @@
 import type { AuthenticatedFetch } from '@picsart/ai-sdk';
+import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getOutput } from '#infra/ui-core/output.ts';
 import { type Credentials, refreshAccessToken } from '#services/auth.ts';
 import { makeHeaders } from '#services/constants.ts';
@@ -27,7 +28,12 @@ export function createAuthenticatedFetch(getCreds: () => Credentials): Authentic
       let refreshedCreds: Credentials;
       try {
         refreshedCreds = await refreshAccessToken();
-      } catch {
+      } catch (err) {
+        // Don't blame the credentials for a failure that never reached the
+        // auth server — a network-shaped error is a NetworkError (exit 4).
+        if (isNetworkError(err)) {
+          throw new NetworkError(`could not refresh the access token (${(err as Error).message})`);
+        }
         throw new Error('Token refresh failed. Run "gen-ai login" to re-authenticate.');
       }
       const retryHeaders: Record<string, string> = {

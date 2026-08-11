@@ -8,6 +8,7 @@ import { Flags } from '@oclif/core';
 import type { DriveClient, DriveFolder } from '@picsart/ai-sdk';
 import { inferResourceType } from '@picsart/ai-sdk';
 import { ExitCode } from '#infra/errors/base.ts';
+import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { UsageError } from '#infra/errors/usage.ts';
 import { ALL_MEDIA_EXTS, detectMediaType, getExtsForType } from '#infra/utils/media-types.ts';
 import { runPool } from '#infra/utils/pool.ts';
@@ -36,6 +37,29 @@ export interface UploadFileEntry {
 export interface UploadJsonPayload {
   ok: boolean;
   files: UploadFileEntry[];
+}
+
+/**
+ * `runUploads`' return: the `--json` payload plus the failure tally the caller
+ * needs to pick an exit code. Only `ok`/`files` are ever serialized — the
+ * counts stay internal so the reported payload shape is unchanged.
+ */
+export interface UploadRunResult extends UploadJsonPayload {
+  /** Files that failed for any reason (upload or Drive save). */
+  failureCount: number;
+  /** Subset of `failureCount` whose thrown error was transport-level. */
+  networkFailureCount: number;
+}
+
+/**
+ * Exit code for a batch: a batch that failed *entirely* for network reasons is
+ * reported as `NETWORK_ERROR` (4) so a script can tell "fix your network" from
+ * "fix your files/auth". Any non-network failure in the mix keeps the batch on
+ * the generic `GENERAL_ERROR` (1) — there is no honest single cause to report.
+ */
+export function uploadExitCode(failureCount: number, networkFailureCount: number): number {
+  if (failureCount === 0) return ExitCode.OK;
+  return failureCount === networkFailureCount ? ExitCode.NETWORK_ERROR : ExitCode.GENERAL_ERROR;
 }
 
 export interface RunUploadsOptions {
@@ -100,12 +124,13 @@ export function resolveUploadTargets(
  * one bad file never discards the URLs of the others, and a failing Drive save
  * never discards the CDN URL that the upload already produced.
  */
-export async function runUploads(opts: RunUploadsOptions): Promise<UploadJsonPayload> {
+export async function runUploads(opts: RunUploadsOptions): Promise<UploadRunResult> {
   const { filePaths, concurrency, token, uid, drive, folder } = opts;
   const noop = (): void => undefined;
   const report = opts.report ?? { info: noop, success: noop, error: noop };
 
   let failed = 0;
+  let networkFailed = 0;
   let jobIdx = 0;
   const files: UploadFileEntry[] = filePaths.map((p) => ({ path: p, url: null, driveUid: null, error: null }));
 
@@ -117,8 +142,12 @@ export async function runUploads(opts: RunUploadsOptions): Promise<UploadJsonPay
       const entry = files[i];
       report.info(`[${++jobIdx}/${filePaths.length}] ${rel}...`);
 
-      const fail = (msg: string): void => {
+      // `err` is the original thrown value, classified here while the cause
+      // chain is still intact — `entry.error` keeps only the message, which is
+      // too lossy to re-classify from at the aggregation point.
+      const fail = (msg: string, err?: unknown): void => {
         failed++;
+        if (err instanceof NetworkError || isNetworkError(err)) networkFailed++;
         entry.error = msg;
         report.error(`${rel}: ${msg}`);
       };
@@ -126,7 +155,7 @@ export async function runUploads(opts: RunUploadsOptions): Promise<UploadJsonPay
       try {
         entry.url = await uploadFile(filePath, { token, uid });
       } catch (e) {
-        fail((e as Error).message);
+        fail((e as Error).message, e);
         return;
       }
 
@@ -155,7 +184,7 @@ export async function runUploads(opts: RunUploadsOptions): Promise<UploadJsonPay
         }
         entry.driveUid = saved.uid;
       } catch (e) {
-        fail(`Drive save failed: ${(e as Error).message}`);
+        fail(`Drive save failed: ${(e as Error).message}`, e);
         return;
       }
 
@@ -164,7 +193,7 @@ export async function runUploads(opts: RunUploadsOptions): Promise<UploadJsonPay
   );
 
   report.info(`\nDone: ${filePaths.length - failed} uploaded, ${failed} failed`);
-  return { ok: failed === 0, files };
+  return { ok: failed === 0, files, failureCount: failed, networkFailureCount: networkFailed };
 }
 
 export default class Upload extends BaseCommand {
@@ -244,7 +273,9 @@ export default class Upload extends BaseCommand {
     if (filePaths.length === 0) {
       const payload: UploadJsonPayload = { ok: false, files: skipped };
       if (this.isJsonMode) process.stdout.write(`${JSON.stringify(payload)}\n`);
-      process.exitCode = ExitCode.GENERAL_ERROR;
+      // Every failure here is a bad input path (missing / wrong type / empty
+      // folder) — never network — so this always resolves to GENERAL_ERROR.
+      process.exitCode = uploadExitCode(skipped.length, 0);
       return;
     }
 
@@ -337,6 +368,11 @@ export default class Upload extends BaseCommand {
     // Partial failure must be visible to callers. Set the exit code directly
     // rather than this.exit() \u2014 the latter throws an ExitError that
     // BaseCommand.catch() renders as an unexpected-error card.
-    if (!combined.ok) process.exitCode = ExitCode.GENERAL_ERROR;
+    //
+    // Skipped inputs count as non-network failures, so a batch that also has
+    // bad paths stays on GENERAL_ERROR even if every real upload died offline.
+    if (!combined.ok) {
+      process.exitCode = uploadExitCode(payload.failureCount + skipped.length, payload.networkFailureCount);
+    }
   }
 }

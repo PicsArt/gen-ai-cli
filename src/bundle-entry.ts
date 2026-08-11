@@ -7,6 +7,7 @@
 import { execute } from '@oclif/core';
 import { createColorManager } from './01-infrastructure/ui-core/color.ts';
 import { createOutputManager } from './01-infrastructure/ui-core/output.ts';
+import { runWithPulse } from './02-services/pulse.ts';
 import { printUpdateNotice, startUpdateCheck } from './02-services/update-check.ts';
 import { startRepl } from './05-shells/03-entry/repl.ts';
 
@@ -69,13 +70,21 @@ export async function main(): Promise<void> {
   // one-shot after execute() (notice only, never auto-updates).
   startUpdateCheck(version);
 
-  if (args.length === 0 && process.stdin.isTTY) {
-    const color = createColorManager({ enabled: 'auto' });
-    createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false });
+  // Wrap the entire CLI lifecycle in a Pulse AsyncLocalStorage context so any
+  // module can `import { pulse } from '@pulse/core'` and fire events, exactly
+  // as the dev entry (src/index.ts) does. Without this, Pulse is dead in every
+  // shipped install AND flushPulse() never settles on error paths. Respects
+  // PULSE_OPT_OUT=1 (calls become no-ops). pulse.flush() runs automatically in
+  // runWithPulse's finally block — no need to call it here.
+  await runWithPulse(version, async () => {
+    if (args.length === 0 && process.stdin.isTTY) {
+      const color = createColorManager({ enabled: 'auto' });
+      createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false });
 
-    await startRepl(version);
-  } else {
-    await execute({ dir: process.env.GEN_AI_OCLIF_ROOT ?? import.meta.url });
-    await printUpdateNotice();
-  }
+      await startRepl(version);
+    } else {
+      await execute({ dir: process.env.GEN_AI_OCLIF_ROOT ?? import.meta.url });
+      await printUpdateNotice();
+    }
+  });
 }

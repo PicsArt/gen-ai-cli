@@ -7,10 +7,11 @@ vi.mock('#services/file-upload.ts', () => ({ uploadFile: vi.fn() }));
 vi.mock('#services/client.ts', () => ({ getAiClient: vi.fn() }));
 vi.mock('#services/auth.ts', () => ({ getToken: vi.fn() }));
 
+import { NetworkError } from '#infra/errors/network.ts';
 import { getToken } from '#services/auth.ts';
 import { getAiClient } from '#services/client.ts';
 import { uploadFile } from '#services/file-upload.ts';
-import Upload, { resolveUploadTargets, runUploads } from './upload.ts';
+import Upload, { resolveUploadTargets, runUploads, uploadExitCode } from './upload.ts';
 
 const mockedUpload = vi.mocked(uploadFile);
 const mockedGetAiClient = vi.mocked(getAiClient);
@@ -126,6 +127,128 @@ describe('upload --json payload', () => {
     const out = await runUploads({ filePaths: [photo, clip], concurrency: 2, token: 't', uid: 'u', drive: { save } });
 
     expect(out.files.map((f) => f.path)).toEqual([photo, clip]);
+  });
+});
+
+describe('uploadExitCode', () => {
+  it('is OK when nothing failed', () => {
+    expect(uploadExitCode(0, 0)).toBe(0);
+  });
+
+  it('is NETWORK_ERROR when every failure was network-shaped', () => {
+    expect(uploadExitCode(3, 3)).toBe(4);
+  });
+
+  it('is GENERAL_ERROR for a mix of network and non-network failures', () => {
+    expect(uploadExitCode(3, 2)).toBe(1);
+  });
+
+  it('is GENERAL_ERROR when no failure was network-shaped', () => {
+    expect(uploadExitCode(2, 0)).toBe(1);
+  });
+});
+
+describe('upload exit-code classification', () => {
+  let dir: string;
+  let photo: string;
+  let clip: string;
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'upl-exit-'));
+    photo = join(dir, 'photo.png');
+    clip = join(dir, 'clip.mov');
+    writeFileSync(photo, 'mock');
+    writeFileSync(clip, 'mock');
+    mockedUpload.mockReset();
+    mockedGetAiClient.mockReset();
+    mockedGetToken.mockReset();
+    mockedGetToken.mockResolvedValue({ token: 't', uid: 'u' } as never);
+    mockedGetAiClient.mockResolvedValue({
+      drive: { save: vi.fn().mockResolvedValue({ uid: 'd', folder: { uid: 'f', name: '' } }) },
+    } as never);
+    writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    process.exitCode = 0;
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    writeSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  function makeInstance(positional: string[]) {
+    const instance = Object.create(Upload.prototype);
+    Object.assign(instance, {
+      deps: {
+        color: {},
+        out: { info: () => undefined, success: () => undefined, error: () => undefined },
+        // noInput: true keeps the interactive Drive-folder picker out of the way.
+        flags: { json: true, quiet: false, debug: false, plain: false, noInput: true },
+      },
+      parse: async () => ({
+        flags: { type: undefined, recursive: false, 'dry-run': false, concurrency: 2, 'max-files': 200 },
+        argv: positional,
+      }),
+    });
+    return instance;
+  }
+
+  it('counts transport-level upload failures separately from other failures', async () => {
+    mockedUpload.mockImplementation(async (p: string) => {
+      if (p === photo) throw new NetworkError('upload to https://x failed (fetch failed)');
+      throw new Error('Upload failed (413): too large');
+    });
+    const save = vi.fn();
+
+    const out = await runUploads({ filePaths: [photo, clip], concurrency: 2, token: 't', uid: 'u', drive: { save } });
+
+    expect(out.failureCount).toBe(2);
+    expect(out.networkFailureCount).toBe(1);
+  });
+
+  it('exits NETWORK_ERROR (4) when every file failed at the transport layer', async () => {
+    mockedUpload.mockRejectedValue(new NetworkError('upload to https://x failed (fetch failed)'));
+
+    await Upload.prototype.run.call(makeInstance([photo, clip]));
+
+    expect(process.exitCode).toBe(4);
+    const written = JSON.parse((writeSpy.mock.calls[0]?.[0] as string).trim());
+    // The per-file payload shape is unchanged — this is an exit-code-only fix.
+    expect(written).toEqual({
+      ok: false,
+      files: [
+        { path: photo, url: null, driveUid: null, error: 'upload to https://x failed (fetch failed)' },
+        { path: clip, url: null, driveUid: null, error: 'upload to https://x failed (fetch failed)' },
+      ],
+    });
+  });
+
+  it('exits GENERAL_ERROR (1) when network and non-network failures are mixed', async () => {
+    mockedUpload.mockImplementation(async (p: string) => {
+      if (p === photo) throw new NetworkError('upload to https://x failed (fetch failed)');
+      throw new Error('Upload failed (413): too large');
+    });
+
+    await Upload.prototype.run.call(makeInstance([photo, clip]));
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('exits GENERAL_ERROR (1) when no failure was network-shaped', async () => {
+    mockedUpload.mockRejectedValue(new Error('Upload failed (413): too large'));
+
+    await Upload.prototype.run.call(makeInstance([photo, clip]));
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('exits GENERAL_ERROR (1) when a skipped input joins an all-network batch', async () => {
+    const missing = join(dir, 'nope.png');
+    mockedUpload.mockRejectedValue(new NetworkError('upload to https://x failed (fetch failed)'));
+
+    await Upload.prototype.run.call(makeInstance([photo, missing]));
+
+    expect(process.exitCode).toBe(1);
   });
 });
 

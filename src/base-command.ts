@@ -74,6 +74,43 @@ export abstract class BaseCommand extends Command {
     });
   }
 
+  /**
+   * Append `err` to ~/.gen-ai/debug.log, returning the log path (or undefined
+   * if the write failed). Never throws — a filesystem problem must not replace
+   * the error the user actually hit.
+   */
+  private tryWriteDebugLog(err: Error): string | undefined {
+    try {
+      return writeDebugLog({
+        cliVersion: this.config?.version ?? 'unknown',
+        command: this.id ?? 'unknown',
+        error: err.message,
+        stack: err.stack,
+      });
+    } catch {
+      /* filesystem error — continue with friendly message */
+      return undefined;
+    }
+  }
+
+  /**
+   * Terminate with `code`.
+   *
+   * `process.exitCode` is assigned BEFORE flushing: `flushPulse()` can only
+   * resolve when a Pulse context exists, and on any path where it doesn't
+   * (PULSE_OPT_OUT, a stubbed entry point) the awaited promise may never
+   * settle — leaving Node to exit naturally at code 0 and silently turn every
+   * error into a success. Setting the field first makes the intended code the
+   * process's exit code no matter which way we leave this function.
+   */
+  private async exitAfterFlush(code: number): Promise<never> {
+    process.exitCode = code;
+    // Drain Pulse before exit — this.exit() calls process.exit() which
+    // skips the finally block in runWithPulse, so we must explicitly flush.
+    await flushPulse();
+    this.exit(code);
+  }
+
   async catch(err: Error & { exitCode?: number }) {
     // Ensure deps are initialized — init() may not have run if oclif
     // threw for missing args or invalid flags before calling init().
@@ -95,22 +132,38 @@ export abstract class BaseCommand extends Command {
     }
 
     if (err instanceof CliError) {
-      const lines = err.friendlyMessage.split('\n');
-      if (err.hint) {
-        lines.push('');
-        lines.push(this.color.dim(err.hint));
+      const logPath = this.tryWriteDebugLog(err);
+
+      if (this.isJsonMode) {
+        // A --json run must be machine-readable on stdout; scraping an ANSI
+        // card off stderr is not a contract any script can depend on.
+        process.stdout.write(
+          `${JSON.stringify({
+            error: err.friendlyMessage,
+            code: err.exitCode,
+            ...(err.hint ? { hint: err.hint } : {}),
+            ...(logPath ? { debugLog: logPath } : {}),
+          })}\n`,
+        );
+      } else {
+        const lines = err.friendlyMessage.split('\n');
+        if (err.hint) {
+          lines.push('');
+          lines.push(this.color.dim(err.hint));
+        }
+        if (logPath) {
+          lines.push('');
+          lines.push(this.color.dim(`Debug log: ${logPath}`));
+        }
+        process.stderr.write(
+          `${renderCard(lines, {
+            color: this.color,
+            title: '✗ Error',
+            borderColor: '#F8495A',
+          })}\n`,
+        );
       }
-      process.stderr.write(
-        `${renderCard(lines, {
-          color: this.color,
-          title: '\u2717 Error',
-          borderColor: '#F8495A',
-        })}\n`,
-      );
-      // Drain Pulse before exit \u2014 this.exit() calls process.exit() which
-      // skips the finally block in runWithPulse, so we must explicitly flush.
-      await flushPulse();
-      this.exit(err.exitCode);
+      await this.exitAfterFlush(err.exitCode);
     }
 
     // oclif usage errors (unknown flags, missing args, bad flag values, etc.)
@@ -119,28 +172,15 @@ export abstract class BaseCommand extends Command {
       process.stderr.write(
         `${renderCard(err.message.split('\n'), {
           color: this.color,
-          title: '\u2717 Error',
+          title: '✗ Error',
           borderColor: '#F8495A',
         })}\n`,
       );
-      await flushPulse();
-      this.exit(ExitCode.USAGE_ERROR);
+      await this.exitAfterFlush(ExitCode.USAGE_ERROR);
     }
 
     // Unexpected error — show the actual message and write debug log
-    const version = this.config?.version ?? 'unknown';
-    const command = this.id ?? 'unknown';
-    let logPath: string | undefined;
-    try {
-      logPath = writeDebugLog({
-        cliVersion: version,
-        command,
-        error: err.message,
-        stack: err.stack,
-      });
-    } catch {
-      /* filesystem error — continue with friendly message */
-    }
+    const logPath = this.tryWriteDebugLog(err);
 
     const msg = err.message || 'Something went wrong unexpectedly.';
     const lines = msg.split('\n');
@@ -153,11 +193,10 @@ export abstract class BaseCommand extends Command {
     process.stderr.write(
       `${renderCard(lines, {
         color: this.color,
-        title: '\u2717 Error',
+        title: '✗ Error',
         borderColor: '#F8495A',
       })}\n`,
     );
-    await flushPulse();
-    this.exit(ExitCode.GENERAL_ERROR);
+    await this.exitAfterFlush(ExitCode.GENERAL_ERROR);
   }
 }

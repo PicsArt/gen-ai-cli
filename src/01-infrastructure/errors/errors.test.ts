@@ -10,6 +10,7 @@ import {
   ExitCode,
   FileError,
   InsufficientCreditsError,
+  isNetworkError,
   NetworkError,
   UsageError,
   ValidationError,
@@ -96,5 +97,40 @@ describe('per-class behavior', () => {
     const err = new FileError('/tmp/missing.txt', 'not found');
     expect(err.exitCode).toBe(8);
     expect(err.friendlyMessage).toContain('missing.txt');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  isNetworkError — shared classifier used by every fetch call site       */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('isNetworkError', () => {
+  it('recognizes the bare TypeError fetch throws for transport failures', () => {
+    expect(isNetworkError(new TypeError('fetch failed'))).toBe(true);
+  });
+
+  it('recognizes libuv codes hidden on the cause chain', () => {
+    for (const code of ['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN', 'ECONNRESET', 'ETIMEDOUT']) {
+      const err = new TypeError('fetch failed', { cause: Object.assign(new Error('inner'), { code }) });
+      expect(isNetworkError(err), code).toBe(true);
+    }
+  });
+
+  it('recognizes aborts and timeouts', () => {
+    expect(isNetworkError(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }))).toBe(true);
+    expect(isNetworkError(Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }))).toBe(true);
+  });
+
+  it('recognizes an AggregateError whose attempts all failed at the transport layer', () => {
+    const agg = new AggregateError([Object.assign(new Error('nope'), { code: 'ECONNREFUSED' })], 'all attempts failed');
+    expect(isNetworkError(agg)).toBe(true);
+  });
+
+  it('does not classify application-level rejections as network failures', () => {
+    expect(isNetworkError(new Error('Refresh token revoked. Run "gen-ai login" to re-authenticate.'))).toBe(false);
+    expect(isNetworkError(new Error('Token refresh failed: invalid_grant'))).toBe(false);
+    expect(isNetworkError(new AuthError('Not authenticated.'))).toBe(false);
+    expect(isNetworkError(undefined)).toBe(false);
+    expect(isNetworkError('fetch failed')).toBe(false);
   });
 });

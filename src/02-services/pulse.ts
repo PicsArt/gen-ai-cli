@@ -138,6 +138,53 @@ export function getInitialPulseState(): Record<string, unknown> {
 }
 
 /**
+ * The two literal first arguments @pulse/common's `objectDeepClone()` passes to
+ * `console.warn` on its clone-fallback path. Copied verbatim from
+ * `node_modules/@pulse/common/esm/utils/obj-clone.js` — an inexact copy would
+ * silently stop matching and let the leak through.
+ */
+const PULSE_CLONE_WARNINGS: readonly string[] = [
+  'structuredClone failed, falling back to deepClonePruningNonStructured',
+  'Deep clone failed using JSON fallback.',
+];
+
+/**
+ * Silence @pulse/common's clone-fallback `console.warn` for the lifetime of a
+ * Pulse-enabled run. Returns a restore function.
+ *
+ * WHY THIS EXISTS — SDK bug, not an application bug:
+ * `tracker.set()` calls `objectDeepClone()` on the tracker's own state, which
+ * the SDK itself has wrapped in an `observeObject` Proxy. `structuredClone`
+ * always throws on a Proxy, so `objectDeepClone` takes its fallback path and
+ * logs `console.warn(<message>, <the whole tracker state>)`. That second
+ * argument contains real identifiers (`userId`, `appDeviceId`,
+ * `appSessionId`), so every single CLI invocation printed ~26 lines of
+ * user/device data to stderr. Nothing is being hidden by this filter: the
+ * fallback clone (`deepClonePruningNonStructured`) produces a correct clone —
+ * the warning is a purely diagnostic print with no functional consequence.
+ *
+ * Deliberately narrow: only calls whose FIRST argument is exactly one of the
+ * two known SDK strings are dropped. Every other `console.warn` — from this
+ * SDK or anywhere else — passes through untouched, and the patch is reverted
+ * in a `finally` so it can never outlive the Pulse run.
+ *
+ * REMOVAL CONDITION: delete this once `@pulse/common` gates that warn behind a
+ * debug flag or stops passing raw tracker state to `console.warn`. Not fixed as
+ * of the currently-pinned `@pulse/server`/`@pulse/core` version — check for an
+ * upstream fix before bumping that dependency, and drop this if it landed.
+ */
+function suppressPulseCloneWarnings(): () => void {
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]): void => {
+    if (typeof args[0] === 'string' && PULSE_CLONE_WARNINGS.includes(args[0])) return;
+    originalWarn(...args);
+  };
+  return () => {
+    console.warn = originalWarn;
+  };
+}
+
+/**
  * Convenience wrapper around the createAsyncContext + flush boilerplate.
  *
  *   await runWithPulse(version, async () => {
@@ -179,18 +226,25 @@ export async function runWithPulse(appVersion: string, fn: () => Promise<void>):
   process.once('uncaughtException', drainAndDie);
   process.once('unhandledRejection', drainAndDie);
 
-  await client.createAsyncContext({}, async () => {
-    // Apply header state through pulse.set() — the createAsyncContext init
-    // only accepts whitelisted STATE_KEYS and drops custom keys silently.
-    pulse.set(getInitialPulseState());
-    try {
-      await fn();
-    } finally {
-      // Drain in-flight POSTs before sockets are torn down. Always runs,
-      // even if `fn` throws, so error analytics aren't lost.
-      await pulse.flush();
-    }
-  });
+  // Active only while Pulse is initialized; restored below no matter how the
+  // wrapped work ends. See suppressPulseCloneWarnings() for the full rationale.
+  const restoreWarn = suppressPulseCloneWarnings();
+  try {
+    await client.createAsyncContext({}, async () => {
+      // Apply header state through pulse.set() — the createAsyncContext init
+      // only accepts whitelisted STATE_KEYS and drops custom keys silently.
+      pulse.set(getInitialPulseState());
+      try {
+        await fn();
+      } finally {
+        // Drain in-flight POSTs before sockets are torn down. Always runs,
+        // even if `fn` throws, so error analytics aren't lost.
+        await pulse.flush();
+      }
+    });
+  } finally {
+    restoreWarn();
+  }
 }
 
 /**
@@ -209,14 +263,24 @@ export async function runWithPulse(appVersion: string, fn: () => Promise<void>):
 export async function flushPulse(timeoutMs = 2000): Promise<void> {
   if (process.env.PULSE_OPT_OUT === '1') return;
 
+  let handle: ReturnType<typeof setTimeout> | undefined;
   try {
     const { pulse } = await import('@pulse/core');
     const drained = pulse.flush();
+    // The timer is deliberately NOT .unref()'d: an unref'd timer cannot hold
+    // the event loop open, so if `pulse.flush()` never settles (no Pulse
+    // context on this entry path) Node exits *before* the race resolves —
+    // skipping the caller's `this.exit(code)` and reporting success for a
+    // failed command. Holding the loop keeps the caller's `await` resumable;
+    // clearTimeout in the finally keeps the CLI from lingering for timeoutMs
+    // once the flush wins the race.
     const timer = new Promise<void>((resolve) => {
-      setTimeout(resolve, timeoutMs).unref();
+      handle = setTimeout(resolve, timeoutMs);
     });
     await Promise.race([drained, timer]);
   } catch {
     // Telemetry never breaks the host.
+  } finally {
+    if (handle) clearTimeout(handle);
   }
 }
