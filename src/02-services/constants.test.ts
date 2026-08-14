@@ -91,6 +91,23 @@ describe('getApiUrl / getUploadUrl', () => {
     process.env.GEN_AI_API_URL = 'http://insecure.example.com';
     expect(() => getApiUrl()).toThrow(/HTTPS|localhost/i);
   });
+
+  it('rejects http hosts that merely START with "localhost" (localhost.evil.com)', () => {
+    process.env.GEN_AI_API_URL = 'http://localhost.evil.com';
+    expect(() => getApiUrl()).toThrow(/HTTPS|localhost/i);
+    process.env.GEN_AI_API_URL = 'http://localhost-impostor:3000';
+    expect(() => getApiUrl()).toThrow(/HTTPS|localhost/i);
+  });
+
+  it('accepts http://127.0.0.1 with a port for local dev', () => {
+    process.env.GEN_AI_API_URL = 'http://127.0.0.1:3000';
+    expect(getApiUrl()).toBe('http://127.0.0.1:3000');
+  });
+
+  it('rejects strings that are not URLs at all', () => {
+    process.env.GEN_AI_API_URL = 'not a url';
+    expect(() => getApiUrl()).toThrow(/valid URL/i);
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -126,6 +143,11 @@ describe('OAuth URL helpers', () => {
   it('uses the host as-is when there is no api label to strip', () => {
     process.env.GEN_AI_API_URL = 'http://localhost:3000';
     expect(getOAuthAuthUrl()).toBe('http://localhost:3000/sso');
+  });
+
+  it('keeps an explicit port when stripping the api label', () => {
+    process.env.GEN_AI_API_URL = 'https://api-stage.example.com:8443';
+    expect(getOAuthAuthUrl()).toBe('https://example.com:8443/sso');
   });
 
   it('token exchange URL is under the API host', () => {

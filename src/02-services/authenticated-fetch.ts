@@ -23,7 +23,11 @@ export function createAuthenticatedFetch(getCreds: () => Credentials): Authentic
     const signal = init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
     const res = await fetch(url, { ...init, headers, signal });
 
-    if (res.status === 401) {
+    // A ReadableStream body is consumed by the first attempt and cannot be
+    // replayed — retrying would throw. Hand the 401 back to the caller instead.
+    const bodyIsReplayable = !(typeof ReadableStream !== 'undefined' && init?.body instanceof ReadableStream);
+
+    if (res.status === 401 && bodyIsReplayable) {
       getOutput().info('Session expired, refreshing token...');
       let refreshedCreds: Credentials;
       try {

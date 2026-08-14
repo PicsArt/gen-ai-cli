@@ -204,4 +204,40 @@ describe('createAuthenticatedFetch — 401 retry', () => {
     }));
     await expect(auth('https://api.example.com/x')).rejects.toThrow(/gen-ai login/i);
   });
+
+  it('does NOT retry a 401 when the body is a one-shot ReadableStream', async () => {
+    // A consumed stream cannot be replayed — the retry would throw. The 401
+    // must be handed back to the caller instead.
+    let callCount = 0;
+    globalThis.fetch = vi.fn(async () => {
+      callCount++;
+      return new Response('', { status: 401 });
+    }) as unknown as typeof fetch;
+    refreshAccessToken.mockResolvedValue({
+      token: 'NEW',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 'OLD',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('payload'));
+        controller.close();
+      },
+    });
+    const res = await auth('https://api.example.com/x', { method: 'POST', body });
+
+    expect(res.status).toBe(401);
+    expect(callCount).toBe(1);
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+  });
 });

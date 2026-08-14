@@ -19,9 +19,9 @@ export interface UpdateResult {
 const BINARY_BASE_URL = process.env.GEN_AI_BASE_URL ?? 'https://picsart.com/gen-ai-cli/releases';
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org/@picsart/gen-ai/latest';
 
-type InstallMode = 'binary' | 'npm';
+export type InstallMode = 'binary' | 'npm';
 
-function detectInstallMode(): InstallMode {
+export function detectInstallMode(): InstallMode {
   // Bun-compiled standalone binaries (the S3-distributed `gen-ai` binary) expose
   // process.versions.bun. The npm-distributed package runs under plain Node, where
   // process.versions.bun is undefined. The legacy GEN_AI_OCLIF_ROOT signal is
@@ -152,7 +152,19 @@ async function performBinaryUpdate(currentVersion: string, force: boolean): Prom
   // Stage next to the running binary so the final rename stays on the same
   // filesystem (avoids EXDEV) and we fail fast on permission issues.
   const newPath = `${process.execPath}.new`;
-  if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
+  try {
+    if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
+  } catch (err: unknown) {
+    // A stale .new owned by another user (e.g. a previous `sudo gen-ai update`)
+    // must produce a friendly result, not an uncaught EACCES.
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      updated: false,
+      oldVersion: currentVersion,
+      newVersion: latestVersion,
+      message: `Could not remove stale update file ${newPath}: ${msg}. Delete it manually and retry.`,
+    };
+  }
 
   try {
     const res = await fetch(binUrl, { signal: AbortSignal.timeout(120_000) });
@@ -264,9 +276,24 @@ async function fetchLatestFromNpm(): Promise<string | null> {
   }
 }
 
+/**
+ * Run npm synchronously in a platform-correct way. On Windows npm is a
+ * `.cmd` shim, which execFileSync cannot spawn without a shell (ENOENT /
+ * EINVAL) — so every npm call must go through here, never straight to
+ * execFileSync('npm', ...). Arguments are static strings, so shell mode on
+ * Windows introduces no injection surface.
+ */
+function runNpm(args: string[], opts: { timeout?: number; stdio?: 'inherit' } = {}): string {
+  return execFileSync('npm', args, {
+    encoding: 'utf-8',
+    shell: process.platform === 'win32',
+    ...opts,
+  }) as string;
+}
+
 function canWriteGlobalDir(): boolean {
   try {
-    const prefix = execFileSync('npm', ['prefix', '-g'], { encoding: 'utf-8' }).trim();
+    const prefix = runNpm(['prefix', '-g']).trim();
     fs.accessSync(prefix, fs.constants.W_OK);
     return true;
   } catch {
@@ -276,15 +303,19 @@ function canWriteGlobalDir(): boolean {
 
 function getNpmInstalledVersion(): string | null {
   try {
-    const output = execFileSync('npm', ['ls', '-g', '@picsart/gen-ai', '--json', '--depth=0'], {
-      encoding: 'utf-8',
-      timeout: 10_000,
-    });
+    const output = runNpm(['ls', '-g', '@picsart/gen-ai', '--json', '--depth=0'], { timeout: 10_000 });
     const data = JSON.parse(output) as { dependencies?: Record<string, { version?: string }> };
     return data.dependencies?.['@picsart/gen-ai']?.version ?? null;
   } catch {
     return null;
   }
+}
+
+/** Platform-appropriate "install with elevated rights" hint. */
+function elevatedInstallHint(): string {
+  return process.platform === 'win32'
+    ? 'Run from an elevated (Administrator) prompt: npm install -g @picsart/gen-ai@latest'
+    : 'Try: sudo npm install -g @picsart/gen-ai@latest';
 }
 
 async function performNpmUpdate(currentVersion: string, force: boolean): Promise<UpdateResult> {
@@ -312,12 +343,12 @@ async function performNpmUpdate(currentVersion: string, force: boolean): Promise
       updated: false,
       oldVersion: currentVersion,
       newVersion: latestVersion,
-      message: 'Permission denied. Try: sudo npm install -g @picsart/gen-ai@latest',
+      message: `Permission denied. ${elevatedInstallHint()}`,
     };
   }
 
   try {
-    execFileSync('npm', ['install', '-g', '@picsart/gen-ai@latest'], {
+    runNpm(['install', '-g', '@picsart/gen-ai@latest'], {
       stdio: 'inherit',
       timeout: 120_000,
     });
@@ -326,7 +357,7 @@ async function performNpmUpdate(currentVersion: string, force: boolean): Promise
       updated: false,
       oldVersion: currentVersion,
       newVersion: latestVersion,
-      message: 'npm install failed. Try running: sudo npm install -g @picsart/gen-ai@latest',
+      message: `npm install failed. ${elevatedInstallHint()}`,
     };
   }
 

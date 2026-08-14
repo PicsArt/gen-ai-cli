@@ -36,18 +36,16 @@ export async function ensureSubfolder(name: string): Promise<string> {
 
 export async function listDriveFolders(): Promise<DriveFolderInfo[]> {
   const ai = await getAiClient();
-  return ai.drive?.folders() ?? [];
-}
-
-export async function listDriveRootFolders(): Promise<DriveFolderInfo[]> {
-  const ai = await getAiClient();
-  return ai.drive?.allFolders() ?? [];
+  return (await ai.drive?.folders()) ?? [];
 }
 
 export async function listDriveAvailableFolders(): Promise<DriveFolderInfo[]> {
   const ai = await getAiClient();
-  return ai.drive?.allFolders() ?? [];
+  return (await ai.drive?.allFolders()) ?? [];
 }
+
+/** @deprecated Duplicate of listDriveAvailableFolders — kept as an alias. */
+export const listDriveRootFolders = listDriveAvailableFolders;
 
 export async function resolveDriveFolderByName(name: string): Promise<DriveFolderInfo | null> {
   const ai = await getAiClient();
@@ -58,7 +56,7 @@ export async function resolveDriveFolderByName(name: string): Promise<DriveFolde
 
 export async function listDriveMedia(filterType?: 'image' | 'video' | 'audio'): Promise<DriveMediaItem[]> {
   const ai = await getAiClient();
-  return ai.drive?.list({ type: filterType }) ?? [];
+  return (await ai.drive?.list({ type: filterType })) ?? [];
 }
 
 export async function listDriveMediaInFolder(
@@ -66,12 +64,12 @@ export async function listDriveMediaInFolder(
   filterType?: 'image' | 'video' | 'audio',
 ): Promise<DriveMediaItem[]> {
   const ai = await getAiClient();
-  return ai.drive?.list({ folder: { uid: folderUid, name: '' }, type: filterType }) ?? [];
+  return (await ai.drive?.list({ folder: { uid: folderUid, name: '' }, type: filterType })) ?? [];
 }
 
 export async function listDriveMediaDetailed(filterType?: 'image' | 'video' | 'audio'): Promise<DriveFileDetails[]> {
   const ai = await getAiClient();
-  return ai.drive?.listDetailed({ type: filterType }) ?? [];
+  return (await ai.drive?.listDetailed({ type: filterType })) ?? [];
 }
 
 export async function listDriveMediaInFolderDetailed(
@@ -79,7 +77,7 @@ export async function listDriveMediaInFolderDetailed(
   filterType?: 'image' | 'video' | 'audio',
 ): Promise<DriveFileDetails[]> {
   const ai = await getAiClient();
-  return ai.drive?.listDetailed({ folder: { uid: folderUid, name: '' }, type: filterType }) ?? [];
+  return (await ai.drive?.listDetailed({ folder: { uid: folderUid, name: '' }, type: filterType })) ?? [];
 }
 
 /**

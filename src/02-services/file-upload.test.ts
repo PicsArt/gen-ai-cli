@@ -166,6 +166,78 @@ describe('uploadFile — error paths', () => {
 /*  resolveFileInput — bad input rejection                                */
 /* ─────────────────────────────────────────────────────────────────────── */
 
+describe('uploadFile — transport failures', () => {
+  it('surfaces a NetworkError (exit 4) when the POST never reaches the server', async () => {
+    const filePath = path.join(tmpDir, 'net.png');
+    fs.writeFileSync(filePath, 'data');
+    globalThis.fetch = (() => {
+      throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+    }) as unknown as typeof fetch;
+
+    const { NetworkError } = await import('#infra/errors/network.ts');
+    const err = await uploadFile(filePath, { token: 't', uid: 'u' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(NetworkError);
+  });
+});
+
+describe('resolveAllFiles', () => {
+  it('passes URLs through every slot without uploading', async () => {
+    const { resolveAllFiles } = await import('./file-upload.ts');
+    globalThis.fetch = vi.fn() as unknown as typeof fetch; // any call would be a bug
+
+    const url = 'https://example.com/a.png';
+    const resolved = await resolveAllFiles(
+      {
+        images: [url, url],
+        startFrame: url,
+        endFrame: url,
+        video: url,
+        audio: url,
+        staticMask: url,
+        sceneImage: url,
+        styleImage: url,
+      },
+      { token: 't', uid: 'u' },
+    );
+
+    expect(resolved.images).toEqual([url, url]);
+    expect(resolved.startFrame).toBe(url);
+    expect(resolved.styleImage).toBe(url);
+    expect(resolved.videos).toBeUndefined(); // empty slots stay undefined
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('uploadFile — directory inputs', () => {
+  it('throws a clean FileError for a directory instead of a raw EISDIR', async () => {
+    const err = await uploadFile(tmpDir, { token: 't', uid: 'u' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FileError);
+    expect((err as FileError).friendlyMessage).toMatch(/directory/i);
+  });
+
+  it('throws FileError (not a raw ENOENT) when the file vanishes before upload', async () => {
+    const err = await uploadFile(path.join(tmpDir, 'gone.png'), { token: 't', uid: 'u' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FileError);
+  });
+
+  it('resolveFileInput routes a directory into the same clean FileError', async () => {
+    const err = await resolveFileInput(tmpDir, { token: 't', uid: 'u' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FileError);
+  });
+});
+
 describe('resolveFileInput', () => {
   it('throws FileError for a path-shaped string with no file on disk', async () => {
     // Reproduces the voice-clone failure: AUD=/voice.mp3 (non-existent),

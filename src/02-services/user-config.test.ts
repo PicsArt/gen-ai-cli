@@ -97,16 +97,33 @@ describe('setConfigValue', () => {
     if (!result.ok) expect(result.reason).toMatch(/unknown/i);
   });
 
-  it('coerces "true" / "1" to boolean true', () => {
+  it('coerces "true" / "1" / "yes" / "on" to boolean true', () => {
     expect(setConfigValue('autoOpen', 'true').ok).toBe(true);
     expect(getUserConfig().autoOpen).toBe(true);
     expect(setConfigValue('autoClipboard', '1').ok).toBe(true);
     expect(getUserConfig().autoClipboard).toBe(true);
+    expect(setConfigValue('autoBell', 'yes').ok).toBe(true);
+    expect(getUserConfig().autoBell).toBe(true);
+    expect(setConfigValue('autoNotify', 'ON').ok).toBe(true);
+    expect(getUserConfig().autoNotify).toBe(true);
   });
 
-  it('coerces non-"true"/"1" to boolean false', () => {
+  it('coerces "false" / "0" / "no" / "off" to boolean false', () => {
     expect(setConfigValue('autoOpen', 'false').ok).toBe(true);
     expect(getUserConfig().autoOpen).toBe(false);
+    expect(setConfigValue('autoClipboard', '0').ok).toBe(true);
+    expect(getUserConfig().autoClipboard).toBe(false);
+    expect(setConfigValue('autoBell', 'off').ok).toBe(true);
+    expect(getUserConfig().autoBell).toBe(false);
+  });
+
+  it('rejects unrecognized boolean strings instead of silently storing false', () => {
+    // Regression: "yes" and typos like "ture" used to be silently coerced to
+    // false — the opposite of what the user meant.
+    const result = setConfigValue('autoOpen', 'maybe');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/true or false/i);
+    expect(getUserConfig().autoOpen).toBeUndefined();
   });
 
   it('parses numbers, enforces 1..500 range', () => {
