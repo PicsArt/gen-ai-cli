@@ -39,7 +39,10 @@ function shouldDisableColor(): boolean {
   if (process.env.NO_COLOR && process.env.NO_COLOR !== '') return true;
   if (process.env.GEN_AI_NO_COLOR && process.env.GEN_AI_NO_COLOR !== '') return true;
   if (process.env.TERM === 'dumb') return true;
-  if (!process.stdout.isTTY) return true;
+  // Colorized UI goes to both streams (diagnostics, cards, and prompts are
+  // written to stderr) — only disable when neither is a terminal, so
+  // `cmd > file` keeps colored stderr output.
+  if (!process.stdout.isTTY && !process.stderr.isTTY) return true;
   return false;
 }
 

@@ -2,7 +2,7 @@
  * Color manager — enable/disable toggle, ANSI stripping, env detection.
  * Migrated from `__tests__/unit/color-manager.test.ts`.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createColorManager } from './color.ts';
 
 describe('createColorManager — disabled', () => {
@@ -93,5 +93,58 @@ describe('createColorManager — env auto-detection', () => {
       if (orig === undefined) delete process.env.TERM;
       else process.env.TERM = orig;
     }
+  });
+});
+
+describe('createColorManager — TTY auto-detection', () => {
+  const ENV_KEYS = ['NO_COLOR', 'GEN_AI_NO_COLOR', 'TERM'] as const;
+  let savedEnv: Record<string, string | undefined>;
+  let savedStdoutTty: PropertyDescriptor | undefined;
+  let savedStderrTty: PropertyDescriptor | undefined;
+
+  function setTty(stream: NodeJS.WriteStream, isTTY: boolean): void {
+    Object.defineProperty(stream, 'isTTY', { value: isTTY, configurable: true });
+  }
+
+  beforeEach(() => {
+    savedEnv = {};
+    for (const key of ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    savedStdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    savedStderrTty = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+    if (savedStdoutTty) Object.defineProperty(process.stdout, 'isTTY', savedStdoutTty);
+    else Reflect.deleteProperty(process.stdout, 'isTTY');
+    if (savedStderrTty) Object.defineProperty(process.stderr, 'isTTY', savedStderrTty);
+    else Reflect.deleteProperty(process.stderr, 'isTTY');
+  });
+
+  it('keeps color when stdout is piped but stderr is a TTY', () => {
+    setTty(process.stdout, false);
+    setTty(process.stderr, true);
+    const c = createColorManager({ enabled: 'auto' });
+    expect(c.enabled).toBe(true);
+  });
+
+  it('keeps color when stderr is piped but stdout is a TTY', () => {
+    setTty(process.stdout, true);
+    setTty(process.stderr, false);
+    const c = createColorManager({ enabled: 'auto' });
+    expect(c.enabled).toBe(true);
+  });
+
+  it('disables color when neither stream is a TTY', () => {
+    setTty(process.stdout, false);
+    setTty(process.stderr, false);
+    const c = createColorManager({ enabled: 'auto' });
+    expect(c.enabled).toBe(false);
   });
 });

@@ -327,3 +327,89 @@ describe('promptWithCommandBox rendering', () => {
     expect(term.ruleRows()).toHaveLength(2);
   });
 });
+
+/* ─────────────────── fallback prompt (non-TTY stdin) ─────────────────── */
+
+describe('promptWithCommandBox fallback', () => {
+  let savedStderrTty: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    fakeStdin.isTTY = false;
+    // Force readline into non-terminal mode so the fake stdin's plain
+    // 'data'/'end' events drive it deterministically.
+    savedStderrTty = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
+    Object.defineProperty(process.stderr, 'isTTY', { value: false, configurable: true });
+  });
+
+  afterEach(() => {
+    if (savedStderrTty) Object.defineProperty(process.stderr, 'isTTY', savedStderrTty);
+    else Reflect.deleteProperty(process.stderr, 'isTTY');
+  });
+
+  /** Let the dynamic `import('node:readline')` inside fallbackPrompt settle. */
+  function settle(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+
+  it('resolves the typed line', async () => {
+    const promise = start();
+    await settle();
+    fakeStdin.emit('data', Buffer.from('hello world\n'));
+    await expect(promise).resolves.toBe('hello world');
+  });
+
+  it('resolves null on EOF (Ctrl+D) instead of hanging', async () => {
+    const promise = start();
+    await settle();
+    fakeStdin.emit('end');
+    await expect(promise).resolves.toBe(null);
+  });
+});
+
+/* ───────────────────────── terminal resize ───────────────────────── */
+
+describe('promptWithCommandBox resize', () => {
+  let savedColumns: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    savedColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+  });
+
+  afterEach(() => {
+    if (savedColumns) Object.defineProperty(process.stdout, 'columns', savedColumns);
+    else Reflect.deleteProperty(process.stdout, 'columns');
+  });
+
+  it('keeps accepting input after a resize and removes the listener on cleanup', async () => {
+    const before = process.stdout.listenerCount('resize');
+    const promise = start();
+    expect(process.stdout.listenerCount('resize')).toBe(before + 1);
+    press('hello');
+    Object.defineProperty(process.stdout, 'columns', { value: 50, configurable: true });
+    process.stdout.emit('resize');
+    press(' world', '\r');
+    await expect(promise).resolves.toBe('hello world');
+    expect(process.stdout.listenerCount('resize')).toBe(before);
+  });
+
+  it('redraws the box at the new width after a resize', async () => {
+    const term = new VirtualTerminal();
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      term.write(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    const promise = start();
+    press('hi');
+    Object.defineProperty(process.stdout, 'columns', { value: 50, configurable: true });
+    process.stdout.emit('resize');
+
+    // The redrawn bottom rule uses the new width (50 - 4 = 46 columns).
+    const rules = term.ruleRows();
+    expect(rules.length).toBeGreaterThan(0);
+    expect(term.rows[rules[rules.length - 1]].trim()).toHaveLength(46);
+
+    press('\x03');
+    await promise;
+  });
+});

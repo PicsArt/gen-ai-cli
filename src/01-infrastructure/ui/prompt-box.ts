@@ -71,8 +71,9 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
     );
     process.stderr.write(`${color.dim(`  e.g. "${example}"`)}\n`);
 
-    const ruleWidth = Math.min(termWidth - 4, 116);
-    const rule = color.brand(HORIZONTAL.repeat(ruleWidth));
+    const computeRuleWidth = (cols: number): number => Math.max(1, Math.min(cols - 4, 116));
+    let ruleWidth = computeRuleWidth(termWidth);
+    let rule = color.brand(HORIZONTAL.repeat(ruleWidth));
     const prefix = `gen-ai generate -m ${opts.modelId} -p `;
     let userText = '';
     let cursorPos = 0; // cursor position within userText
@@ -170,6 +171,7 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       }
       process.stdin.removeListener('data', onData);
       process.removeListener('SIGINT', onSigint);
+      process.stdout.removeListener('resize', onResize);
       if (process.stdin.setRawMode) process.stdin.setRawMode(false);
       process.stdin.pause();
       // Move past the bottom rule. The cursor rests on `prevCursorLine`
@@ -187,6 +189,18 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       resolve(null);
     }
     process.on('SIGINT', onSigint);
+
+    // Recompute layout when the terminal is resized: all cursor math assumes
+    // one logical line per screen row, which breaks once a stale (wider)
+    // ruleWidth makes the terminal hard-wrap rendered rows. render() erases
+    // the old box and redraws at the new width.
+    function onResize(): void {
+      if (cleaned) return;
+      ruleWidth = computeRuleWidth(process.stdout.columns || 80);
+      rule = color.brand(HORIZONTAL.repeat(ruleWidth));
+      render();
+    }
+    process.stdout.on('resize', onResize);
 
     // StringDecoder buffers a UTF-8 sequence split across chunk boundaries
     // (large pastes) instead of decoding the halves to replacement chars.
@@ -327,9 +341,18 @@ async function fallbackPrompt(): Promise<string | null> {
     // Prompt text goes to stderr like the rest of the UI — stdout is
     // reserved for results and may be piped.
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    rl.question('Prompt: ', (answer: string) => {
+    let settled = false;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
       rl.close();
-      resolve(answer.trim() || null);
-    });
+      resolve(value);
+    };
+    // Without a 'SIGINT' listener readline only pauses the stream on Ctrl+C,
+    // leaving this promise pending forever — cancel like the raw-mode path.
+    rl.on('SIGINT', () => finish(null));
+    // Ctrl+D / EOF closes the interface without firing the question callback.
+    rl.on('close', () => finish(null));
+    rl.question('Prompt: ', (answer: string) => finish(answer.trim() || null));
   });
 }
