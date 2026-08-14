@@ -3,7 +3,6 @@
  * Renders command help in styled cards instead of oclif's plain text.
  */
 
-import { COMMANDS } from '#root/commands-manifest.ts';
 import { createColorManager } from '../ui-core/color.ts';
 import { renderCard } from '../ui-core/components/card.ts';
 
@@ -82,11 +81,15 @@ function renderFlagRows(
 
 /**
  * Show card-based help for a command. Returns true if the command was found.
+ *
+ * `commands` is injected by the caller (the REPL passes the oclif manifest) —
+ * importing the manifest here would make this layer-1 module depend on every
+ * layer-5 command class (enforced by check:arch).
  */
-export function showCardHelp(commandId: string): boolean {
+export function showCardHelp(commandId: string, commands: Record<string, unknown>): boolean {
   // Resolve "models info" → "models:info", "config set" → "config:set", etc.
   const key = commandId.replace(/\s+/g, ':');
-  const cmd = COMMANDS[key] as unknown as CommandMeta | undefined;
+  const cmd = commands[key] as CommandMeta | undefined;
   if (!cmd) return false;
 
   const color = createColorManager({ enabled: 'auto' });

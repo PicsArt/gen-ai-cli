@@ -133,7 +133,7 @@ describe('uploadFile — happy path', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('uploadFile — error paths', () => {
-  it('throws on HTTP non-2xx with status code in the message', async () => {
+  it('throws a typed ApiError (exit 5) with the status code on HTTP non-2xx', async () => {
     const filePath = path.join(tmpDir, 'a.png');
     fs.writeFileSync(filePath, 'x');
 
@@ -141,7 +141,14 @@ describe('uploadFile — error paths', () => {
       async () => new Response('Unauthorized', { status: 401, statusText: 'Unauthorized' }),
     ) as unknown as typeof fetch;
 
-    await expect(uploadFile(filePath, { token: 't', uid: 'u' })).rejects.toThrow(/401/);
+    const { ApiError } = await import('#infra/errors/api.ts');
+    const err = await uploadFile(filePath, { token: 't', uid: 'u' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as InstanceType<typeof ApiError>).statusCode).toBe(401);
+    expect((err as InstanceType<typeof ApiError>).friendlyMessage).toMatch(/401/);
   });
 
   it('throws if the response is missing a URL', async () => {

@@ -183,4 +183,147 @@ describe('promptWithCommandBox', () => {
     await promise;
     expect(fakeStdin.listenerCount('data')).toBe(0);
   });
+
+  it('supports SS3 arrow/Home/End sequences (application cursor-keys mode)', async () => {
+    const promise = start();
+    press('a😀', '\x1bOD', '\x1bOD', 'z', '\x1bOF', 'w', '\x1bOH', 'q', '\r');
+    await expect(promise).resolves.toBe('qza😀w');
+  });
+
+  it('reassembles a UTF-8 character split across stdin chunks (large paste)', async () => {
+    const promise = start();
+    const emoji = Buffer.from('😀', 'utf-8'); // 4 bytes
+    fakeStdin.emit('data', emoji.subarray(0, 2));
+    fakeStdin.emit('data', emoji.subarray(2));
+    press('x', '\r');
+    await expect(promise).resolves.toBe('😀x');
+  });
+});
+
+/* ─────────────────── rendering (virtual terminal) ─────────────────── */
+
+/**
+ * Minimal terminal emulator — interprets the escape sequences the prompt box
+ * emits (CSI A cursor-up, CSI G column, CSI J clear-below, CR, LF) so tests
+ * can assert what actually ends up on screen, not just the resolved value.
+ */
+class VirtualTerminal {
+  rows: string[] = [''];
+  row = 0;
+  col = 0;
+
+  write(data: string): void {
+    let i = 0;
+    while (i < data.length) {
+      const ch = data[i];
+      if (ch === '\x1b') {
+        const csi = data.slice(i).match(/^\x1b\[([0-9]*)([AGJ])/);
+        if (csi) {
+          const n = csi[1] === '' ? (csi[2] === 'J' ? 0 : 1) : Number(csi[1]);
+          if (csi[2] === 'A') this.row = Math.max(0, this.row - n);
+          else if (csi[2] === 'G') this.col = n - 1;
+          else if (csi[2] === 'J') {
+            this.rows[this.row] = (this.rows[this.row] ?? '').slice(0, this.col);
+            this.rows = this.rows.slice(0, this.row + 1);
+          }
+          i += csi[0].length;
+          continue;
+        }
+        // Strip SGR / OSC 8 (color is disabled in tests, but be safe).
+        const other = data.slice(i).match(/^\x1b\[[0-9;]*m|^\x1b\]8;;[^\x07]*\x07/);
+        if (other) {
+          i += other[0].length;
+          continue;
+        }
+        i++;
+        continue;
+      }
+      if (ch === '\r') {
+        this.col = 0;
+        i++;
+        continue;
+      }
+      if (ch === '\n') {
+        this.row++;
+        this.col = 0;
+        while (this.rows.length <= this.row) this.rows.push('');
+        i++;
+        continue;
+      }
+      while (this.rows.length <= this.row) this.rows.push('');
+      const line = this.rows[this.row].padEnd(this.col, ' ');
+      this.rows[this.row] = line.slice(0, this.col) + ch + line.slice(this.col + 1);
+      this.col++;
+      i++;
+    }
+  }
+
+  /** Indexes of rows that consist of the horizontal rule character. */
+  ruleRows(): number[] {
+    return this.rows.flatMap((r, i) => (/^─+$/.test(r.trim()) && r.trim().length > 0 ? [i] : []));
+  }
+}
+
+describe('promptWithCommandBox rendering', () => {
+  let term: VirtualTerminal;
+
+  beforeEach(() => {
+    term = new VirtualTerminal();
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      term.write(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+  });
+
+  it('editing above the last line of a multi-line prompt does not destroy the lines above the box', async () => {
+    const promise = start();
+    press('abc', '\x1b\r', 'def', '\x1b\r', 'ghi'); // 3-line prompt
+    press('\x1b[H', 'X'); // Home → insert at line 0
+
+    // The instruction line and BOTH rules must survive the re-render.
+    expect(term.rows.some((r) => r.includes('e.g.'))).toBe(true);
+    expect(term.ruleRows()).toHaveLength(2);
+    expect(term.rows.some((r) => r.includes('Xabc'))).toBe(true);
+    expect(term.rows.some((r) => r.trim() === 'ghi')).toBe(true);
+
+    press('\x03'); // cancel to clean up
+    await promise;
+  });
+
+  it('submitting with the cursor on an earlier line leaves the cursor below the box', async () => {
+    const promise = start();
+    press('abc', '\x1b\r', 'def', '\x1b\r', 'ghi');
+    press('\x1b[H', '\r'); // Home, then submit with the cursor on line 0
+    await expect(promise).resolves.toBe('abc\ndef\nghi');
+
+    // Whatever the CLI prints next must land BELOW the bottom rule, not
+    // inside the prompt box.
+    process.stderr.write('NEXT-OUTPUT\n');
+    const markerRow = term.rows.findIndex((r) => r.includes('NEXT-OUTPUT'));
+    const rules = term.ruleRows();
+    expect(rules).toHaveLength(2);
+    expect(markerRow).toBeGreaterThan(rules[1]);
+    // The prompt content is intact.
+    expect(term.rows.some((r) => r.trim() === 'ghi')).toBe(true);
+  });
+
+  it('positions the cursor by display width after a 2-column emoji', async () => {
+    const promise = start();
+    press('😀');
+    const prefixVis = 4 + 'gen-ai generate -m test-model -p '.length;
+    expect(term.col).toBe(prefixVis + 2); // emoji occupies 2 cells, not 1
+    press('\x03');
+    await promise;
+  });
+
+  it('recovers cleanly after the empty-submit warning', async () => {
+    const promise = start();
+    press('\r'); // empty → warning replaces the input row
+    expect(term.rows.some((r) => r.includes('prompt cannot be empty'))).toBe(true);
+    press('ok', '\r');
+    await expect(promise).resolves.toBe('ok');
+    // Warning is gone and the box is intact.
+    expect(term.rows.some((r) => r.includes('prompt cannot be empty'))).toBe(false);
+    expect(term.ruleRows()).toHaveLength(2);
+  });
 });

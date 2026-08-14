@@ -120,13 +120,26 @@ describe('renderInline', () => {
     expect(output).toContain('\x1b\\');
   });
 
-  it('prints a one-line text summary when no protocol is supported', async () => {
+  it('prints a one-line text summary to stderr (not stdout) when no protocol is supported', async () => {
     setStdoutTTY(false);
     const mod = await loadFresh();
-    const output = captureStdout(() => mod.renderInline(Buffer.from('x'.repeat(2048)), { label: 'result.png' }));
-    expect(output).toContain('result.png');
-    expect(output).toContain('2.0 KB');
-    expect(output).not.toContain('\x1b]1337');
+    let stderrOut = '';
+    const origStderr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrOut += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    let stdoutOut = '';
+    try {
+      stdoutOut = captureStdout(() => mod.renderInline(Buffer.from('x'.repeat(2048)), { label: 'result.png' }));
+    } finally {
+      process.stderr.write = origStderr;
+    }
+    expect(stderrOut).toContain('result.png');
+    expect(stderrOut).toContain('2.0 KB');
+    expect(stderrOut).not.toContain('\x1b]1337');
+    // stdout must stay clean — it may be piped to a consumer.
+    expect(stdoutOut).toBe('');
   });
 });
 

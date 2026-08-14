@@ -1,9 +1,9 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
-import * as path from 'node:path';
 import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getOutput } from '#infra/ui-core/output.ts';
+import { ensureDataDir } from '#infra/utils/data-dir.ts';
 import { openInDefault } from '#infra/utils/open.ts';
 import {
   getApiUrl,
@@ -28,9 +28,8 @@ export interface Credentials {
 /* ── Credential storage (file-based, mode 0o600) ────────────── */
 
 function saveCredentials(creds: Credentials): void {
+  ensureDataDir();
   const credPath = getCredentialsPath();
-  const dir = path.dirname(credPath);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Atomic tmp + rename (same pattern as user-config/history/device-id): a
   // crash mid-write must not corrupt credentials and silently log the user out.
   const tmp = `${credPath}.tmp`;

@@ -202,7 +202,15 @@ describe('createAuthenticatedFetch — 401 retry', () => {
       email: 'a@b',
       expiresAt: '2099-01-01T00:00:00Z',
     }));
-    await expect(auth('https://api.example.com/x')).rejects.toThrow(/gen-ai login/i);
+    const { AuthError } = await import('#infra/errors/auth.ts');
+    const err = await auth('https://api.example.com/x').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    // Typed AuthError → exit code 3, not a plain Error collapsing to exit 1.
+    expect(err).toBeInstanceOf(AuthError);
+    expect((err as InstanceType<typeof AuthError>).exitCode).toBe(3);
+    expect((err as Error).message).toMatch(/gen-ai login/i);
   });
 
   it('cancels the discarded 401 response body before retrying', async () => {

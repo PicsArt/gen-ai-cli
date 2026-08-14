@@ -3,6 +3,7 @@
  * Builds a createClient() instance with authenticated fetch and Drive enabled.
  */
 import { catalog, createClient } from '@picsart/ai-sdk';
+import { AuthError } from '#infra/errors/auth.ts';
 import { createAuthenticatedFetch } from '#services/authenticated-fetch.ts';
 import { getApiUrl } from '#services/constants.ts';
 import { getToken, loadCredentials } from './auth.ts';
@@ -19,7 +20,7 @@ export async function getAuthenticatedFetch() {
   const authenticatedFetch = createAuthenticatedFetch(() => {
     const fresh = loadCredentials();
     if (fresh) return fresh;
-    throw new Error('Credentials lost during session. Run "gen-ai login" to re-authenticate.');
+    throw new AuthError('Credentials lost during session. Run "gen-ai login" to re-authenticate.');
   });
   return { authenticatedFetch, creds };
 }

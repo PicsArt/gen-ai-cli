@@ -94,3 +94,13 @@ describe('renderCard — plain mode', () => {
     expect(contentLine?.startsWith('  ')).toBe(true);
   });
 });
+
+describe('renderCard — wide characters', () => {
+  it('aligns the right border when content contains CJK and emoji (2-column glyphs)', () => {
+    const result = renderCard(['ascii line', '你好世界', '😀 emoji', '🖼️ vs16'], { color });
+    const lines = result.split('\n').filter((l) => l.length > 0);
+    const widths = lines.map((l) => visibleWidth(l));
+    // Every row of the box (borders included) must span the same display width.
+    expect(new Set(widths).size).toBe(1);
+  });
+});
