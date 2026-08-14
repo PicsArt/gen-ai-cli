@@ -35,17 +35,20 @@ const realFetch = globalThis.fetch;
 
 let tmpHome: string;
 let originalHome: string | undefined;
+let tokenFetchInits: Array<{ url: string; init?: RequestInit }>;
 
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-login-'));
   originalHome = process.env.HOME;
   process.env.HOME = tmpHome;
   openInDefaultMock.mockReset();
+  tokenFetchInits = [];
 
   // Token exchange + user info are remote calls — mock them; everything else
   // (the loopback callback below) goes through the real fetch.
   globalThis.fetch = ((url: unknown, init?: RequestInit) => {
     const u = String(url);
+    tokenFetchInits.push({ url: u, init });
     if (u.includes('/oauth2/code/exchange')) {
       return Promise.resolve(
         new Response(
@@ -148,6 +151,30 @@ describe('login — OAuth callback server', () => {
     const res = await realFetch(`${redirectUri}/?error=access_denied&error_description=nope`);
     expect(res.status).toBe(400);
     await rejection;
+  });
+
+  it('passes an abort signal to token-exchange and user-info fetches', async () => {
+    // Regression: these run after `handled = true` disarms the 5-minute login
+    // timer — without their own timeout signal a stalled endpoint would leave
+    // login() pending forever.
+    const { promise, redirectUri, state } = await startLogin();
+    await realFetch(`${redirectUri}/?code=auth-code&state=${state}`);
+    await promise;
+
+    const exchange = tokenFetchInits.find((c) => c.url.includes('/oauth2/code/exchange'));
+    const userInfo = tokenFetchInits.find((c) => c.url.includes('/users/show/me.json'));
+    expect(exchange?.init?.signal).toBeInstanceOf(AbortSignal);
+    expect(userInfo?.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('writes credentials atomically — no .tmp file left behind', async () => {
+    const { promise, redirectUri, state } = await startLogin();
+    await realFetch(`${redirectUri}/?code=auth-code&state=${state}`);
+    await promise;
+
+    const credDir = path.join(tmpHome, '.gen-ai');
+    expect(fs.existsSync(path.join(credDir, 'credentials.json'))).toBe(true);
+    expect(fs.existsSync(path.join(credDir, 'credentials.json.tmp'))).toBe(false);
   });
 
   it('rejects when the callback carries no code', async () => {

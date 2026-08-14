@@ -60,6 +60,20 @@ describe('performUpdate — binary mode', () => {
     expect(result.message).toMatch(/release server|network/i);
   });
 
+  it('treats a non-version latest.txt body (captive portal HTML) as unreachable', async () => {
+    // A 200 + HTML answer must not be compared as a version — and with
+    // --force it must never be spliced into the download URL.
+    const fetchMock = vi.fn(
+      async () => new Response('<!DOCTYPE html><html>hotel wifi login</html>', { status: 200 }),
+    ) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+    globalThis.fetch = fetchMock;
+
+    const result = await performUpdate({ currentVersion: '1.0.0', force: true });
+    expect(result.updated).toBe(false);
+    expect(result.message).toMatch(/release server|network/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // never proceeded to a download
+  });
+
   it('reports already-up-to-date without downloading anything', async () => {
     const fetchMock = vi.fn(async () => new Response('1.0.0\n', { status: 200 })) as unknown as typeof fetch &
       ReturnType<typeof vi.fn>;

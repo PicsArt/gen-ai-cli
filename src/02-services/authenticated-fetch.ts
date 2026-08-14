@@ -28,6 +28,13 @@ export function createAuthenticatedFetch(getCreds: () => Credentials): Authentic
     const bodyIsReplayable = !(typeof ReadableStream !== 'undefined' && init?.body instanceof ReadableStream);
 
     if (res.status === 401 && bodyIsReplayable) {
+      // Release the discarded 401 response — an unconsumed body pins the
+      // socket (undici keeps the connection out of the pool until GC).
+      try {
+        await res.body?.cancel();
+      } catch {
+        /* already consumed or closed — nothing to release */
+      }
       getOutput().info('Session expired, refreshing token...');
       let refreshedCreds: Credentials;
       try {
@@ -40,9 +47,14 @@ export function createAuthenticatedFetch(getCreds: () => Credentials): Authentic
         }
         throw new Error('Token refresh failed. Run "gen-ai login" to re-authenticate.');
       }
+      const refreshedAuth = makeHeaders(refreshedCreds.token, refreshedCreds.uid);
       const retryHeaders: Record<string, string> = {
-        ...makeHeaders(refreshedCreds.token, refreshedCreds.uid),
+        ...refreshedAuth,
         ...((init?.headers as Record<string, string>) ?? {}),
+        // The refreshed identity must win on the retry — a caller-supplied
+        // Authorization would re-send the very token that just earned the 401.
+        Authorization: refreshedAuth.Authorization,
+        'user-id': refreshedAuth['user-id'],
       };
       const retrySignal = init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
       return fetch(url, { ...init, headers: retryHeaders, signal: retrySignal });

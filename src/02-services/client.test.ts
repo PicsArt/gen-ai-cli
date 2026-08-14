@@ -25,7 +25,7 @@ vi.mock('./auth.ts', () => ({
   refreshAccessToken: vi.fn(),
 }));
 
-import { getAiClient, getAuthenticatedFetch } from './client.ts';
+import { getAiClient, getAuthenticatedFetch, resetAiClientCache } from './client.ts';
 
 createOutputManager({
   color: createColorManager({ enabled: false }),
@@ -39,6 +39,7 @@ let originalFetch: typeof fetch;
 beforeEach(() => {
   getToken.mockReset();
   loadCredentials.mockReset();
+  resetAiClientCache();
   originalFetch = globalThis.fetch;
 });
 afterEach(() => {
@@ -108,5 +109,27 @@ describe('getAiClient', () => {
     // Public API surface of the SDK client (smoke — actual SDK creates these).
     expect(typeof client.generate).toBe('function');
     expect(typeof client.estimate).toBe('function');
+  });
+
+  it('caches the client — repeated calls return the same instance without re-auth', async () => {
+    const creds = { token: 't', uid: 'u', expiresAt: '2099-01-01T00:00:00Z' };
+    getToken.mockResolvedValue(creds);
+    loadCredentials.mockReturnValue(creds);
+
+    const a = await getAiClient();
+    const b = await getAiClient();
+    expect(b).toBe(a);
+    expect(getToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a failed build — the next call retries', async () => {
+    getToken.mockRejectedValueOnce(new Error('offline'));
+    await expect(getAiClient()).rejects.toThrow('offline');
+
+    const creds = { token: 't', uid: 'u', expiresAt: '2099-01-01T00:00:00Z' };
+    getToken.mockResolvedValue(creds);
+    loadCredentials.mockReturnValue(creds);
+    const client = await getAiClient();
+    expect(typeof client.generate).toBe('function');
   });
 });

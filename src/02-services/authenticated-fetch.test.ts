@@ -205,6 +205,82 @@ describe('createAuthenticatedFetch — 401 retry', () => {
     await expect(auth('https://api.example.com/x')).rejects.toThrow(/gen-ai login/i);
   });
 
+  it('cancels the discarded 401 response body before retrying', async () => {
+    // An unconsumed body pins the socket (undici keeps the connection out of
+    // the pool until GC) — the retry path must release it explicitly.
+    let cancelled = false;
+    let callCount = 0;
+    globalThis.fetch = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        const body = new ReadableStream({
+          cancel() {
+            cancelled = true;
+          },
+        });
+        return new Response(body, { status: 401 });
+      }
+      return new Response('ok', { status: 200 });
+    }) as unknown as typeof fetch;
+    refreshAccessToken.mockResolvedValue({
+      token: 'NEW',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 'OLD',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    const res = await auth('https://api.example.com/x');
+
+    expect(res.status).toBe(200);
+    expect(cancelled).toBe(true);
+  });
+
+  it('refreshed token wins over a caller-supplied Authorization header on the retry', async () => {
+    // Caller headers normally override auth headers, but on the retry that
+    // would re-send the very token that just earned the 401.
+    const headersByCall: Array<Record<string, string>> = [];
+    let callCount = 0;
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      callCount++;
+      headersByCall.push(init?.headers as Record<string, string>);
+      return new Response('', { status: callCount === 1 ? 401 : 200 });
+    }) as unknown as typeof fetch;
+    refreshAccessToken.mockResolvedValue({
+      token: 'NEW',
+      uid: 'uid-new',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 'OLD',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    const res = await auth('https://api.example.com/x', {
+      headers: { Authorization: 'Bearer STALE', 'X-Custom': 'kept' },
+    });
+
+    expect(res.status).toBe(200);
+    // First attempt: caller override applies (documented behavior).
+    expect(headersByCall[0].Authorization).toBe('Bearer STALE');
+    // Retry: refreshed identity must win; other caller headers survive.
+    expect(headersByCall[1].Authorization).toBe('Bearer NEW');
+    expect(headersByCall[1]['user-id']).toBe('uid-new');
+    expect(headersByCall[1]['X-Custom']).toBe('kept');
+  });
+
   it('does NOT retry a 401 when the body is a one-shot ReadableStream', async () => {
     // A consumed stream cannot be replayed — the retry would throw. The 401
     // must be handed back to the caller instead.

@@ -211,6 +211,35 @@ describe('resolveAllFiles', () => {
   });
 });
 
+describe('resolveAllFiles — concurrency', () => {
+  it('uploads multiple local files concurrently, preserving order', async () => {
+    const { resolveAllFiles } = await import('./file-upload.ts');
+    const fileA = path.join(tmpDir, 'a.png');
+    const fileB = path.join(tmpDir, 'b.png');
+    fs.writeFileSync(fileA, 'aaa');
+    fs.writeFileSync(fileB, 'bbb');
+
+    // Each upload resolves only after BOTH requests are in flight — a serial
+    // implementation would deadlock here (and hit the test timeout).
+    let inFlight = 0;
+    let bothStarted: () => void;
+    const gate = new Promise<void>((resolve) => {
+      bothStarted = resolve;
+    });
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      inFlight++;
+      if (inFlight === 2) bothStarted();
+      await gate;
+      const name = ((init?.body as FormData).get('file') as File).name;
+      return new Response(JSON.stringify({ url: `https://cdn.example.com/${name}` }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const resolved = await resolveAllFiles({ images: [fileA, fileB] }, { token: 't', uid: 'u' });
+    expect(resolved.images).toEqual(['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png']);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('uploadFile — directory inputs', () => {
   it('throws a clean FileError for a directory instead of a raw EISDIR', async () => {
     const err = await uploadFile(tmpDir, { token: 't', uid: 'u' }).then(

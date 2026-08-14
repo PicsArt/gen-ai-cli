@@ -76,3 +76,32 @@ describe('fetchLatestVersion routing', () => {
     expect(fetchedUrls[0]).toContain('registry.npmjs.org');
   });
 });
+
+describe('fetchLatestVersion — wire validation', () => {
+  it('does not cache a non-version latest.txt body (captive portal HTML)', async () => {
+    detectInstallModeMock.mockReturnValue('binary');
+    globalThis.fetch = vi.fn(
+      async () => new Response('<!DOCTYPE html><html>hotel wifi login</html>', { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    startUpdateCheck('1.0.0');
+    await flushBackgroundFetch();
+
+    // A rejected body must not be written to the 24h cache — otherwise the
+    // garbage would be compared as a version on every startup for a day.
+    const cachePath = path.join(tmpHome, '.gen-ai', 'update-check.json');
+    expect(fs.existsSync(cachePath)).toBe(false);
+  });
+
+  it('caches a valid latest.txt version', async () => {
+    detectInstallModeMock.mockReturnValue('binary');
+    globalThis.fetch = vi.fn(async () => new Response('99.0.0\n', { status: 200 })) as unknown as typeof fetch;
+
+    startUpdateCheck('1.0.0');
+    await flushBackgroundFetch();
+
+    const cachePath = path.join(tmpHome, '.gen-ai', 'update-check.json');
+    expect(fs.existsSync(cachePath)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(cachePath, 'utf-8')).latestVersion).toBe('99.0.0');
+  });
+});

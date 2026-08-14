@@ -9,6 +9,9 @@
  * (`CLI_CHECKOUT_ANALYTICS`) sit alongside other CLI-identity constants.
  */
 
+// Deliberately hardcoded to production even when GEN_AI_API_URL points at a
+// stage environment: billing/checkout only exists on picsart.com, and a
+// derived stage URL would land the user on a page that can't take payment.
 const CHECKOUT_BASE = 'https://picsart.com/pricing';
 const CHECKOUT_ANALYTICS_PARAMS = ['page_origin', 'action_button'] as const;
 

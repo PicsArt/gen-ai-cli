@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import chalk from 'chalk';
 import { ensureDataDir, getDataDir } from '#infra/utils/data-dir.ts';
 import { getUserConfig } from '#services/user-config.ts';
+import { isNewer, isValidVersion } from '#services/version.ts';
 import { detectInstallMode, isRunningFromSource, performUpdate } from './self-update.ts';
 
 // Write directly to stderr — printUpdateNotice runs after `await execute(...)`
@@ -41,7 +42,8 @@ function readCache(): CacheData | null {
   try {
     const raw = fs.readFileSync(getCachePath(), 'utf-8');
     const data = JSON.parse(raw) as CacheData;
-    if (data.lastCheck && data.latestVersion) return data;
+    // Reject caches written by older CLIs that didn't validate wire versions.
+    if (data.lastCheck && data.latestVersion && isValidVersion(data.latestVersion)) return data;
     return null;
   } catch {
     return null;
@@ -67,15 +69,6 @@ function writeCache(latestVersion: string): void {
   }
 }
 
-function isNewer(latest: string, current: string): boolean {
-  const parse = (v: string) => v.split('-')[0].split('.').map(Number);
-  const [lMaj, lMin, lPat] = parse(latest);
-  const [cMaj, cMin, cPat] = parse(current);
-  if (lMaj !== cMaj) return lMaj > cMaj;
-  if (lMin !== cMin) return lMin > cMin;
-  return lPat > cPat;
-}
-
 async function fetchLatestVersion(): Promise<string | null> {
   // Binary install checks CDN; npm install checks registry. Uses the same
   // detection as the updater itself — a divergent check here would compare
@@ -85,12 +78,15 @@ async function fetchLatestVersion(): Promise<string | null> {
     if (isBinary) {
       const res = await fetch(BINARY_LATEST_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!res.ok) return null;
-      return (await res.text()).trim() || null;
+      // Captive portals / CDN error pages can answer 200 + HTML — a non-version
+      // body must not be cached and compared as a version.
+      const text = (await res.text()).trim();
+      return isValidVersion(text) ? text : null;
     }
     const res = await fetch(NPM_REGISTRY_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     const data = (await res.json()) as { version?: string };
-    return data.version ?? null;
+    return data.version && isValidVersion(data.version) ? data.version : null;
   } catch {
     return null;
   }

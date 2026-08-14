@@ -24,13 +24,31 @@ export async function getAuthenticatedFetch() {
   return { authenticatedFetch, creds };
 }
 
+let _client: ReturnType<typeof createClient> | null = null;
+
+/**
+ * Get the process-wide SDK client, building it on first use. Cached because
+ * every drive.ts wrapper calls this — one command can hit it several times,
+ * and each build re-runs getToken(). Safe to cache: the authenticated fetch
+ * re-reads credentials from disk per request, so refreshed tokens are picked
+ * up without a rebuild, and apiUrl is fixed for the process lifetime.
+ * A failed build is not cached — the next call retries.
+ */
 export async function getAiClient() {
+  if (_client) return _client;
   const { authenticatedFetch } = await getAuthenticatedFetch();
-  return createClient({
+  _client = createClient({
     fetch: authenticatedFetch,
     apiUrl: getApiUrl(),
     drive: { folder: CLI_DRIVE_FOLDER },
   });
+  return _client;
+}
+
+/** Test-only: drop the cached client (and pricing flag) between specs. */
+export function resetAiClientCache(): void {
+  _client = null;
+  _pricingConfigured = false;
 }
 
 let _pricingConfigured = false;

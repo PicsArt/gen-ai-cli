@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { CLI_VERSION } from '#services/constants.ts';
+import { isNewer, isValidVersion } from '#services/version.ts';
 
 export interface UpdateResult {
   updated: boolean;
@@ -75,15 +76,6 @@ function detectPlatform(): string | null {
   return null;
 }
 
-function isNewer(latest: string, current: string): boolean {
-  const parse = (v: string) => v.split('-')[0].split('.').map(Number);
-  const [lMaj, lMin, lPat] = parse(latest);
-  const [cMaj, cMin, cPat] = parse(current);
-  if (lMaj !== cMaj) return lMaj > cMaj;
-  if (lMin !== cMin) return lMin > cMin;
-  return lPat > cPat;
-}
-
 /* ── Binary install updater ──────────────────────────────────── */
 
 async function fetchText(url: string, timeoutMs = 5_000): Promise<string | null> {
@@ -119,7 +111,10 @@ export function findChecksum(checksumsText: string, platform: string, ext = ''):
 async function performBinaryUpdate(currentVersion: string, force: boolean): Promise<UpdateResult> {
   const latestText = await fetchText(`${BINARY_BASE_URL}/latest.txt`);
   const latestVersion = latestText?.trim();
-  if (!latestVersion) {
+  if (!latestVersion || !isValidVersion(latestVersion)) {
+    // A captive portal / CDN error page can answer with 200 + HTML — treat
+    // anything that isn't a version as "unreachable", never splice it into
+    // the download URL below.
     return {
       updated: false,
       oldVersion: currentVersion,
@@ -270,7 +265,7 @@ async function fetchLatestFromNpm(): Promise<string | null> {
   if (!body) return null;
   try {
     const data = JSON.parse(body) as { version?: string };
-    return data.version ?? null;
+    return data.version && isValidVersion(data.version) ? data.version : null;
   } catch {
     return null;
   }

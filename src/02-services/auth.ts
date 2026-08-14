@@ -31,7 +31,11 @@ function saveCredentials(creds: Credentials): void {
   const credPath = getCredentialsPath();
   const dir = path.dirname(credPath);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+  // Atomic tmp + rename (same pattern as user-config/history/device-id): a
+  // crash mid-write must not corrupt credentials and silently log the user out.
+  const tmp = `${credPath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, credPath);
 }
 
 export function loadCredentials(): Credentials | null {
@@ -180,11 +184,20 @@ async function parseTokenResponse(res: Response): Promise<TokenResponse | null> 
   }
 }
 
+/**
+ * Timeout for the token-exchange and user-info calls. These run AFTER the
+ * callback handler sets `handled = true`, which disarms login()'s 5-minute
+ * timer — without their own AbortSignal a stalled endpoint would leave the
+ * login promise pending forever with no message to the user.
+ */
+const TOKEN_FETCH_TIMEOUT_MS = 30_000;
+
 async function exchangeCode(code: string, redirectUri: string): Promise<TokenResponse> {
   const res = await fetch(getTokenExchangeUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ code, redirect_uri: redirectUri }),
+    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
   const data = await parseTokenResponse(res);
   if (!res.ok || !data || data.status !== 'success') {
@@ -199,6 +212,7 @@ async function exchangeCode(code: string, redirectUri: string): Promise<TokenRes
 async function fetchUserInfo(accessToken: string): Promise<{ uid: string; email: string }> {
   const res = await fetch(`${getApiUrl()}/gw-v2/users/show/me.json`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Failed to fetch user info (${res.status})`);
   const data = (await res.json()) as Record<string, unknown>;
@@ -346,6 +360,7 @@ async function doRefresh(): Promise<Credentials> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refresh_token: creds.refreshToken }),
+    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
   const data = await parseTokenResponse(res);
 

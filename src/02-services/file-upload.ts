@@ -140,23 +140,31 @@ export interface InputFiles {
 
 async function resolveArray(arr: string[] | undefined, opts: UploadOptions): Promise<string[] | undefined> {
   if (!arr || arr.length === 0) return undefined;
-  const out: string[] = [];
-  for (const v of arr) out.push(await resolveFileInput(v, opts));
-  return out;
+  return Promise.all(arr.map((v) => resolveFileInput(v, opts)));
 }
 
-/** Resolve every file slot. Local paths get uploaded; URLs pass through. */
+async function resolveOptional(value: string | undefined, opts: UploadOptions): Promise<string | undefined> {
+  return value ? resolveFileInput(value, opts) : undefined;
+}
+
+/**
+ * Resolve every file slot. Local paths get uploaded; URLs pass through.
+ * All slots resolve concurrently — uploads are independent POSTs, so a
+ * multi-image input shouldn't pay per-file round-trip latency serially.
+ */
 export async function resolveAllFiles(files: InputFiles, opts: UploadOptions): Promise<ResolvedFiles> {
-  const resolved: ResolvedFiles = {};
-  resolved.images = await resolveArray(files.images, opts);
-  resolved.videos = await resolveArray(files.videos, opts);
-  resolved.audios = await resolveArray(files.audios, opts);
-  if (files.startFrame) resolved.startFrame = await resolveFileInput(files.startFrame, opts);
-  if (files.endFrame) resolved.endFrame = await resolveFileInput(files.endFrame, opts);
-  if (files.video) resolved.video = await resolveFileInput(files.video, opts);
-  if (files.audio) resolved.audio = await resolveFileInput(files.audio, opts);
-  if (files.staticMask) resolved.staticMask = await resolveFileInput(files.staticMask, opts);
-  if (files.sceneImage) resolved.sceneImage = await resolveFileInput(files.sceneImage, opts);
-  if (files.styleImage) resolved.styleImage = await resolveFileInput(files.styleImage, opts);
-  return resolved;
+  const [images, videos, audios, startFrame, endFrame, video, audio, staticMask, sceneImage, styleImage] =
+    await Promise.all([
+      resolveArray(files.images, opts),
+      resolveArray(files.videos, opts),
+      resolveArray(files.audios, opts),
+      resolveOptional(files.startFrame, opts),
+      resolveOptional(files.endFrame, opts),
+      resolveOptional(files.video, opts),
+      resolveOptional(files.audio, opts),
+      resolveOptional(files.staticMask, opts),
+      resolveOptional(files.sceneImage, opts),
+      resolveOptional(files.styleImage, opts),
+    ]);
+  return { images, videos, audios, startFrame, endFrame, video, audio, staticMask, sceneImage, styleImage };
 }
