@@ -55,7 +55,7 @@ describe('performUpdate — binary mode', () => {
     globalThis.fetch = vi.fn(() => {
       throw new TypeError('fetch failed');
     }) as unknown as typeof fetch;
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/release server|network/i);
   });
@@ -68,7 +68,7 @@ describe('performUpdate — binary mode', () => {
     ) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
     globalThis.fetch = fetchMock;
 
-    const result = await performUpdate({ currentVersion: '1.0.0', force: true });
+    const result = await performUpdate({ currentVersion: '1.0.0', force: true, fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/release server|network/i);
     expect(fetchMock).toHaveBeenCalledTimes(1); // never proceeded to a download
@@ -78,7 +78,7 @@ describe('performUpdate — binary mode', () => {
     const fetchMock = vi.fn(async () => new Response('1.0.0\n', { status: 200 })) as unknown as typeof fetch &
       ReturnType<typeof vi.fn>;
     globalThis.fetch = fetchMock;
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/up to date/i);
     expect(fetchMock).toHaveBeenCalledTimes(1); // only latest.txt
@@ -92,7 +92,7 @@ describe('performUpdate — binary mode', () => {
       return new Response('definitely-not-the-right-bytes', { status: 200 });
     }) as unknown as typeof fetch;
 
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/checksum mismatch/i);
 
@@ -122,7 +122,7 @@ describe('performUpdate — binary mode', () => {
       return new Response(payload, { status: 200 });
     }) as unknown as typeof fetch;
 
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(true);
     expect(result.newVersion).toBe('99.0.0');
     // The staged file replaced the (fake) running binary atomically.
@@ -138,7 +138,7 @@ describe('performUpdate — binary mode', () => {
       return new Response('payload', { status: 200 });
     }) as unknown as typeof fetch;
 
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/checksum/i);
 

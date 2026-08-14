@@ -42,6 +42,34 @@ describe('findChecksum — exact platform match (no glibc/musl substring collisi
   });
 });
 
+describe('performUpdate — dev-clone guard', () => {
+  it('refuses to update when running from a source tree', async () => {
+    // A dev clone has no install to update — `npm install -g` would create or
+    // overwrite the developer's GLOBAL install, and CLI_VERSION (0.0.0-dev)
+    // means the "already up to date" exit would never fire. The updater must
+    // refuse without touching the network or spawning npm.
+    const orig = globalThis.fetch;
+    const fetchSpy = vi.fn(async () => new Response('', { status: 500 }));
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const result = await performUpdate({ currentVersion: '0.0.0-dev', fromSource: true });
+      expect(result.updated).toBe(false);
+      expect(result.message).toMatch(/dev clone/i);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it('defaults fromSource to real detection — true in this test environment (a repo checkout)', async () => {
+    // The vitest run itself executes from the source tree, so the default
+    // detection must trip the guard without any override.
+    const result = await performUpdate({ currentVersion: '1.0.0' });
+    expect(result.updated).toBe(false);
+    expect(result.message).toMatch(/dev clone/i);
+  });
+});
+
 describe('performUpdate — shape', () => {
   it('returns an UpdateResult object', async () => {
     // Block all network fetches → the updater should fail gracefully and
@@ -49,7 +77,7 @@ describe('performUpdate — shape', () => {
     const orig = globalThis.fetch;
     globalThis.fetch = vi.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch;
     try {
-      const result: UpdateResult = await performUpdate({ currentVersion: '1.0.0' });
+      const result: UpdateResult = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
       expect(typeof result.updated).toBe('boolean');
       expect(typeof result.oldVersion).toBe('string');
       expect(typeof result.newVersion).toBe('string');
@@ -66,7 +94,7 @@ describe('performUpdate — shape', () => {
       throw new Error('network down');
     }) as unknown as typeof fetch;
     try {
-      const result = await performUpdate({ currentVersion: '1.0.0' });
+      const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
       expect(result.updated).toBe(false);
     } finally {
       globalThis.fetch = orig;
@@ -79,7 +107,7 @@ describe('performUpdate — shape', () => {
       async () => new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 }),
     ) as unknown as typeof fetch;
     try {
-      const result = await performUpdate({ currentVersion: '1.0.0' });
+      const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
       expect(result.updated).toBe(false);
       expect(result.message.toLowerCase()).toMatch(/up to date|latest/);
     } finally {
