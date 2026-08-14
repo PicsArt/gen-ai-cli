@@ -138,6 +138,16 @@ describe('getRecentHistory', () => {
     expect(recent.map((e) => e.model)).toEqual(['m-4', 'm-3', 'm-2']);
   });
 
+  it('returns [] for a limit of 0 — slice(-0) must not mean "everything"', () => {
+    for (let i = 0; i < 5; i++) appendHistory(entry({ model: `m${i}` }));
+    expect(getRecentHistory(0)).toEqual([]);
+  });
+
+  it('returns [] for a negative limit', () => {
+    for (let i = 0; i < 5; i++) appendHistory(entry({ model: `m${i}` }));
+    expect(getRecentHistory(-3)).toEqual([]);
+  });
+
   it('defaults to 20 when no limit is passed', () => {
     for (let i = 0; i < 25; i++) appendHistory(entry());
     expect(getRecentHistory().length).toBe(20);

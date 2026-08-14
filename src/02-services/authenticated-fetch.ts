@@ -2,7 +2,7 @@ import type { AuthenticatedFetch } from '@picsart/ai-sdk';
 import { AuthError } from '#infra/errors/auth.ts';
 import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getOutput } from '#infra/ui-core/output.ts';
-import { type Credentials, refreshAccessToken } from '#services/auth.ts';
+import { type Credentials, getEnvCredentials, refreshAccessToken } from '#services/auth.ts';
 import { makeHeaders } from '#services/constants.ts';
 
 /** Default timeout for authenticated fetch calls (120 seconds). */
@@ -35,6 +35,13 @@ export function createAuthenticatedFetch(getCreds: () => Credentials): Authentic
         await res.body?.cancel();
       } catch {
         /* already consumed or closed — nothing to release */
+      }
+      // An env-provided token (CI mode) has no refresh token — refreshing the
+      // disk credentials would rotate an identity this request isn't using.
+      if (getEnvCredentials()) {
+        throw new AuthError(
+          'API rejected the token from PICSART_ACCESS_TOKEN (401). Provide a fresh token, or unset the env vars and run "gen-ai login".',
+        );
       }
       getOutput().info('Session expired, refreshing token...');
       let refreshedCreds: Credentials;

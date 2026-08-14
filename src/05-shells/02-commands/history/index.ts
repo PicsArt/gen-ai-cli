@@ -26,6 +26,7 @@ export default class HistoryList extends BaseCommand {
       char: 'n',
       description: 'Number of entries to show',
       default: 20,
+      min: 1,
     }),
   };
 
