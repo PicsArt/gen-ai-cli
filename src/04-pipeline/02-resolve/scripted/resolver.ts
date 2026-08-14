@@ -8,7 +8,12 @@ import { UsageError } from '#infra/errors/usage.ts';
 import { ValidationError } from '#infra/errors/validation.ts';
 import type { CliDeps } from '#root/deps.ts';
 import type { ResolvedInputs } from '#root/types.ts';
-import { buildParamsFromFlags, deriveTopLevelPromptFromMulti, validateRequiredInputs } from '../types.ts';
+import {
+  buildParamsFromFlags,
+  deriveTopLevelPromptFromMulti,
+  validateMultiShot,
+  validateRequiredInputs,
+} from '../types.ts';
 
 /**
  * Resolve all inputs from CLI flags. No prompts.
@@ -72,15 +77,31 @@ export async function resolveScripted(
     rejectEmpty('--end-frame', v);
     files.endFrame = v;
   }
+  // `--video` / `--audio` get the same bridge as `-i` → startFrame: models
+  // like seedance-2.0-video-extend expose the ARRAY slot (`videoUrls`) and
+  // no `videoUrl`; seed-audio models likewise expose only `audioUrls`.
+  // Route the single-file flag into the array slot for those models so one
+  // CLI surface covers both shapes — otherwise the value lands on a ctx key
+  // the model doesn't declare and the API rejects with a cryptic 400.
   if (flags.video) {
     const v = flags.video as string;
     rejectEmpty('--video', v);
-    files.video = v;
+    const onlyVideoUrls = !Models.getFileParam(model.id, 'videoUrl') && !!Models.getFileParam(model.id, 'videoUrls');
+    if (onlyVideoUrls && !flags['video-urls']) {
+      files.videos = [v];
+    } else {
+      files.video = v;
+    }
   }
   if (flags.audio) {
     const v = flags.audio as string;
     rejectEmpty('--audio', v);
-    files.audio = v;
+    const onlyAudioUrls = !Models.getFileParam(model.id, 'audioUrl') && !!Models.getFileParam(model.id, 'audioUrls');
+    if (onlyAudioUrls && !flags['audio-urls']) {
+      files.audios = [v];
+    } else {
+      files.audio = v;
+    }
   }
   // Reference-image inputs ride on the consolidated `imageUrls` descriptor
   // (auto-derived to `-i`/`--image`) and are already handled above via
@@ -138,57 +159,4 @@ export async function resolveScripted(
   validateMultiShot(params);
 
   return { model, params, files };
-}
-
-/**
- * Pre-flight for Kling-style multi-shot generation.
- *
- * The backend enforces two cross-field invariants the user has no way to
- * see from a single descriptor:
- *
- *   1. `multiShot=true` requires an explicit `shotType` — the API rejects
- *      even though the descriptor declares a default.
- *   2. When `shotType='customize'`, `sum(multiPrompt[].duration) === duration`.
- *
- * Throwing locally keeps the failure under one second instead of waiting
- * for a polled 400 from the worker.
- */
-function validateMultiShot(params: Record<string, unknown>): void {
-  if (params.multiShot !== true) return;
-
-  if (typeof params.shotType !== 'string' || params.shotType.length === 0) {
-    throw new UsageError('--shot-type is required when --multi-shot is set (try `--shot-type customize`).');
-  }
-
-  if (params.shotType !== 'customize') return;
-
-  const shots = params.multiPrompt;
-  if (!Array.isArray(shots) || shots.length === 0) {
-    throw new UsageError('multi-shot=customize requires --multi-prompt-prompt entries describing each shot.');
-  }
-
-  // (Auto-numbering of `index` is handled generically by the flag/wizard
-  // readers via `autoNumberIndexField`. We only enforce the duration sum
-  // and shot_type rules here.)
-
-  const total = typeof params.duration === 'number' ? params.duration : Number(params.duration);
-  if (!Number.isFinite(total)) {
-    throw new UsageError('--duration is required when --multi-shot --shot-type customize is set.');
-  }
-
-  let sum = 0;
-  for (const s of shots) {
-    const d = (s as { duration?: unknown })?.duration;
-    const n = typeof d === 'number' ? d : Number(d);
-    if (!Number.isFinite(n)) {
-      throw new UsageError('Every shot needs a --multi-prompt-duration (got one with no parseable duration).');
-    }
-    sum += n;
-  }
-
-  if (sum !== total) {
-    throw new UsageError(
-      `Shot durations sum to ${sum}s but --duration is ${total}s — they must match for shot_type=customize.`,
-    );
-  }
 }

@@ -216,3 +216,45 @@ describe('resolveInteractive — multiPrompt seeds the top-level prompt', () => 
     expect(runPromptStepMock).toHaveBeenCalled();
   });
 });
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  File-flag pass-through                                                */
+/*                                                                        */
+/*  Every file flag the CLI accepts must reach the file step — dropping   */
+/*  --video-urls / --audio-urls / --static-mask / --scene-image /         */
+/*  --style-image silently discards inputs the user typed.                */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('resolveInteractive — file-flag pass-through', () => {
+  it('forwards array/kling file flags to the file step', async () => {
+    resetAll();
+    runModelStepMock.mockResolvedValue(imageModel());
+    runFileStepMock.mockResolvedValue({});
+    runParamsStepMock.mockResolvedValue({});
+    runConfirmStepMock.mockResolvedValue(true);
+
+    await resolveInteractive(
+      flow(),
+      {
+        'video-urls': ['/r1.mp4'],
+        'audio-urls': ['/r1.mp3'],
+        'static-mask': '/mask.png',
+        'scene-image': '/scene.png',
+        'style-image': '/style.png',
+      },
+      deps,
+    );
+
+    expect(runFileStepMock).toHaveBeenCalledWith(
+      deps,
+      expect.anything(),
+      expect.objectContaining({
+        'video-urls': ['/r1.mp4'],
+        'audio-urls': ['/r1.mp3'],
+        'static-mask': '/mask.png',
+        'scene-image': '/scene.png',
+        'style-image': '/style.png',
+      }),
+    );
+  });
+});

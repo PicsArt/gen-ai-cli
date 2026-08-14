@@ -127,7 +127,11 @@ describe('validateRequiredInputs', () => {
 
   it('reports missing image / video / audio', () => {
     const errs = validateRequiredInputs({ ...ACCEPT_ALL, requiredInputs: ['image', 'video', 'audio'] }, {});
-    expect(errs.map((e) => e.field).sort()).toEqual(['--audio', '--image (-i) or --start-frame', '--video']);
+    expect(errs.map((e) => e.field).sort()).toEqual([
+      '--audio or --audio-urls',
+      '--image (-i) or --start-frame',
+      '--video or --video-urls',
+    ]);
   });
 
   it('accepts files when present', () => {
@@ -136,6 +140,31 @@ describe('validateRequiredInputs', () => {
       { files: { images: ['a.png'], video: 'b.mp4', audio: 'c.mp3' } },
     );
     expect(errs).toEqual([]);
+  });
+
+  // Models like seedance-2.0-video-extend take their video via the array
+  // slot (`videoUrls` → files.videos); seed-audio models likewise take
+  // audio via `audioUrls` → files.audios. Either slot satisfies the
+  // flow-level requirement — mirroring how startFrame satisfies 'image'.
+  it("counts files.videos toward the 'video' requirement", () => {
+    const errs = validateRequiredInputs(
+      { ...ACCEPT_ALL, requiredInputs: ['video'] },
+      { files: { videos: ['clip.mp4'] } },
+    );
+    expect(errs).toEqual([]);
+  });
+
+  it("counts files.audios toward the 'audio' requirement", () => {
+    const errs = validateRequiredInputs(
+      { ...ACCEPT_ALL, requiredInputs: ['audio'] },
+      { files: { audios: ['track.mp3'] } },
+    );
+    expect(errs).toEqual([]);
+  });
+
+  it("does not count an empty files.videos array toward the 'video' requirement", () => {
+    const errs = validateRequiredInputs({ ...ACCEPT_ALL, requiredInputs: ['video'] }, { files: { videos: [] } });
+    expect(errs.length).toBe(1);
   });
 
   // Note: optional-input ("prompt?") suffix support was dropped along with

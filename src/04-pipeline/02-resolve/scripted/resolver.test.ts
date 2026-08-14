@@ -46,6 +46,20 @@ function startFrameOnlyModel(): ModelDefinition | undefined {
   );
 }
 
+function videoUrlsOnlyModel(): ModelDefinition | undefined {
+  // e.g. seedance-2.0-video-extend — declares `videoUrls`, no `videoUrl`
+  return Models.list().find(
+    (m) => !m.disabled && !Models.getFileParam(m.id, 'videoUrl') && !!Models.getFileParam(m.id, 'videoUrls'),
+  );
+}
+
+function audioUrlsOnlyModel(): ModelDefinition | undefined {
+  // e.g. seed-audio-1.0 — declares `audioUrls`, no `audioUrl`
+  return Models.list().find(
+    (m) => !m.disabled && !Models.getFileParam(m.id, 'audioUrl') && !!Models.getFileParam(m.id, 'audioUrls'),
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────────────── */
 /*  Model errors                                                          */
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -155,6 +169,57 @@ describe('resolveScripted — file inputs', () => {
     const out = await resolveScripted(ACCEPT_ALL, { model: m.id }, deps);
     expect(out.files.videos).toBeUndefined();
     expect(out.files.audios).toBeUndefined();
+  });
+
+  // `--video` ergonomics mirror the `-i` → startFrame bridge: models like
+  // seedance-2.0-video-extend expose `videoUrls` (array) instead of
+  // `videoUrl`. When the model has only `videoUrls` and the user passed
+  // `--video`, route the value into files.videos so the single CLI surface
+  // covers both shapes — otherwise the value lands on a ctx key the model
+  // doesn't declare and the API rejects with a 400.
+  it('routes --video into files.videos when the model exposes only videoUrls', async () => {
+    const m = videoUrlsOnlyModel();
+    if (!m) return; // SDK has no such model right now — skip
+    const out = await resolveScripted(ACCEPT_ALL, { model: m.id, video: 'clip.mp4' }, deps);
+    expect(out.files.videos).toEqual(['clip.mp4']);
+    expect(out.files.video).toBeUndefined();
+  });
+
+  it('keeps --video on files.video when the model has no videoUrls slot', async () => {
+    const m = someModel();
+    const out = await resolveScripted(ACCEPT_ALL, { model: m.id, video: 'clip.mp4' }, deps);
+    expect(out.files.video).toBe('clip.mp4');
+    expect(out.files.videos).toBeUndefined();
+  });
+
+  it('routes --audio into files.audios when the model exposes only audioUrls', async () => {
+    const m = audioUrlsOnlyModel();
+    if (!m) return; // SDK has no such model right now — skip
+    const out = await resolveScripted(ACCEPT_ALL, { model: m.id, audio: 'track.mp3' }, deps);
+    expect(out.files.audios).toEqual(['track.mp3']);
+    expect(out.files.audio).toBeUndefined();
+  });
+
+  it('satisfies a required video input via --video-urls (regression: extend flow)', async () => {
+    const m = videoUrlsOnlyModel();
+    if (!m) return; // SDK has no such model right now — skip
+    const out = await resolveScripted(
+      { ...ACCEPT_ALL, requiredInputs: ['video'] },
+      { model: m.id, 'video-urls': ['clip.mp4'] },
+      deps,
+    );
+    expect(out.files.videos).toEqual(['clip.mp4']);
+  });
+
+  it('satisfies a required audio input via --audio-urls', async () => {
+    const m = audioUrlsOnlyModel();
+    if (!m) return; // SDK has no such model right now — skip
+    const out = await resolveScripted(
+      { ...ACCEPT_ALL, requiredInputs: ['audio'] },
+      { model: m.id, 'audio-urls': ['track.mp3'] },
+      deps,
+    );
+    expect(out.files.audios).toEqual(['track.mp3']);
   });
 });
 

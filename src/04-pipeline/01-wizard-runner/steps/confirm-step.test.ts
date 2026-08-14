@@ -18,9 +18,10 @@ import type { CliDeps } from '#root/deps.ts';
 import { BACK, CANCEL } from '../wizard-state.ts';
 
 const selectWithNavMock = vi.hoisted(() => vi.fn());
+const renderKeyValueMock = vi.hoisted(() => vi.fn((..._args: unknown[]) => 'kv'));
 vi.mock('../nav.ts', () => ({ selectWithNav: selectWithNavMock }));
 vi.mock('#infra/ui-core/components/card.ts', () => ({ renderCard: (lines: string[]) => lines.join('\n') }));
-vi.mock('#infra/ui-core/components/key-value.ts', () => ({ renderKeyValue: () => 'kv' }));
+vi.mock('#infra/ui-core/components/key-value.ts', () => ({ renderKeyValue: renderKeyValueMock }));
 
 import { runConfirmStep } from './confirm-step.ts';
 
@@ -95,5 +96,49 @@ describe('runConfirmStep — summary rendering', () => {
     const { deps, calls } = makeDeps();
     await runConfirmStep(deps, model, 'a cat', { images: ['/i.png'] }, { aspectRatio: '16:9' });
     expect(calls.result.length).toBe(1);
+  });
+
+  // The user confirms what they SEE — every file slot must appear in the
+  // summary, not just images/video/audio. A hidden --static-mask or
+  // --video-urls input is a surprise at generation time.
+  it('lists every file slot in the summary', async () => {
+    selectWithNavMock.mockReset().mockResolvedValue('run');
+    renderKeyValueMock.mockClear();
+    const { deps } = makeDeps();
+    await runConfirmStep(
+      deps,
+      model,
+      'p',
+      {
+        images: ['/i.png'],
+        startFrame: '/s.png',
+        endFrame: '/e.png',
+        video: '/v.mp4',
+        audio: '/a.mp3',
+        videos: ['/r1.mp4'],
+        audios: ['/r1.mp3'],
+        staticMask: '/m.png',
+        sceneImage: '/sc.png',
+        styleImage: '/st.png',
+      },
+      {},
+    );
+
+    const pairs = renderKeyValueMock.mock.calls[0][0] as unknown as [string, string][];
+    const filesValue = pairs.find(([k]) => k === 'files')?.[1] ?? '';
+    for (const f of [
+      '/i.png',
+      '/s.png',
+      '/e.png',
+      '/v.mp4',
+      '/a.mp3',
+      '/r1.mp4',
+      '/r1.mp3',
+      '/m.png',
+      '/sc.png',
+      '/st.png',
+    ]) {
+      expect(filesValue).toContain(f);
+    }
   });
 });

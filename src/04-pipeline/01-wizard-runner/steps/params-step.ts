@@ -38,14 +38,13 @@ export async function runParamsStep(
     // Model lookup may fail for unknown ids — fail gracefully
   }
 
-  // In edit mode: pass an empty context so promptForParams re-asks all params.
-  // The model's paramConfig descriptors include `default` values which the
-  // wizard uses. We override those defaults with previousParams values below.
+  // In edit mode: pass an empty context so promptForParams re-asks all
+  // params, and hand it previousParams so every step's default is the
+  // user's PREVIOUS choice — pressing Enter through the wizard keeps the
+  // values instead of resetting to descriptor defaults.
   if (previousParams) {
-    // Override model descriptor defaults with previously chosen values
-    // so the wizard shows "current value" as the default for each param.
     const editCtx: Partial<GenerationContext> = {} as Partial<GenerationContext>;
-    const result = await promptForParams(model, editCtx);
+    const result = await promptForParams(model, editCtx, previousParams);
 
     if (result === BACK || result === CANCEL) return result;
 

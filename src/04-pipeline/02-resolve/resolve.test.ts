@@ -21,6 +21,8 @@ import { FileError } from '#infra/errors/file.ts';
 
 const resolveInteractiveMock = vi.hoisted(() => vi.fn());
 const resolveScriptedMock = vi.hoisted(() => vi.fn());
+const resolveAllFilesMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedFetchMock = vi.hoisted(() => vi.fn());
 const stdinLines = vi.hoisted(() => ({ value: [] as string[] }));
 
 vi.mock('#pipeline/01-wizard-runner/resolver.ts', () => ({
@@ -28,6 +30,12 @@ vi.mock('#pipeline/01-wizard-runner/resolver.ts', () => ({
 }));
 vi.mock('./scripted/resolver.ts', () => ({
   resolveScripted: resolveScriptedMock,
+}));
+vi.mock('#services/file-upload.ts', () => ({
+  resolveAllFiles: resolveAllFilesMock,
+}));
+vi.mock('#services/client.ts', () => ({
+  getAuthenticatedFetch: getAuthenticatedFetchMock,
 }));
 vi.mock('node:readline', () => ({
   createInterface: () => {
@@ -50,8 +58,14 @@ vi.mock('node:readline', () => ({
   },
 }));
 
+import { Models } from '@picsart/ai-sdk';
 import type { CliDeps } from '#root/deps.ts';
-import { deriveTopLevelPromptFromMulti, normalizePromptInput, resolveInputs } from './resolve.ts';
+import {
+  deriveTopLevelPromptFromMulti,
+  flagsFullySpecifyInputs,
+  normalizePromptInput,
+  resolveInputs,
+} from './resolve.ts';
 
 const config: FlowSpec = {
   id: 'test',
@@ -120,6 +134,145 @@ describe('resolveInputs — dispatch', () => {
     } finally {
       if (orig) Object.defineProperty(process.stdin, 'isTTY', orig);
     }
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  resolveInputs — file-upload gate                                      */
+/*                                                                        */
+/*  Local files must be uploaded (→ URLs) before execution for EVERY      */
+/*  file slot, not just the classic five. A user whose only file input    */
+/*  is --video-urls / --audio-urls / --static-mask / --scene-image /      */
+/*  --style-image must not have raw local paths leak to the API.          */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('resolveInputs — file-upload gate', () => {
+  const model = Models.list().find((m) => !m.disabled) ?? ({} as never);
+
+  function scriptedWithFiles(files: Record<string, unknown>) {
+    resolveInteractiveMock.mockReset();
+    resolveScriptedMock.mockReset();
+    resolveAllFilesMock.mockReset();
+    getAuthenticatedFetchMock.mockReset();
+    resolveScriptedMock.mockResolvedValue({ model, params: { prompt: 'p' }, files });
+    getAuthenticatedFetchMock.mockResolvedValue({ creds: { token: 't', uid: 'u' } });
+    resolveAllFilesMock.mockImplementation(async (f: unknown) => f);
+  }
+
+  it.each([
+    ['videos', { videos: ['./local.mp4'] }],
+    ['audios', { audios: ['./local.mp3'] }],
+    ['staticMask', { staticMask: './mask.png' }],
+    ['sceneImage', { sceneImage: './scene.png' }],
+    ['styleImage', { styleImage: './style.png' }],
+  ])('runs the upload step when the only file slot set is %s', async (_slot, files) => {
+    scriptedWithFiles(files);
+    await resolveInputs(config, {}, makeDeps({ silent: true }));
+    expect(resolveAllFilesMock).toHaveBeenCalledWith(files, { token: 't', uid: 'u' });
+  });
+
+  it('skips the upload step when no file slot is set', async () => {
+    scriptedWithFiles({});
+    await resolveInputs(config, {}, makeDeps({ silent: true }));
+    expect(resolveAllFilesMock).not.toHaveBeenCalled();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  resolveInputs — vendor cross-field invariants (interactive path)      */
+/*                                                                        */
+/*  The Kling multi-shot pre-flight must run for BOTH resolution paths.   */
+/*  A wizard user who builds a violating multi-shot config should fail    */
+/*  fast locally, not wait for a polled 400 from the worker.              */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('resolveInputs — multi-shot pre-flight on the interactive path', () => {
+  const model = Models.list().find((m) => !m.disabled) ?? ({} as never);
+
+  it('rejects interactive multiShot params without a shotType', async () => {
+    resolveInteractiveMock.mockReset();
+    resolveScriptedMock.mockReset();
+    resolveInteractiveMock.mockResolvedValue({
+      model,
+      params: { prompt: 'p', multiShot: true },
+      files: {},
+    });
+    const orig = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    try {
+      await expect(resolveInputs(config, {}, makeDeps({}))).rejects.toThrow(/--shot-type/);
+    } finally {
+      if (orig) Object.defineProperty(process.stdin, 'isTTY', orig);
+    }
+  });
+
+  it('rejects interactive shot durations that do not sum to --duration', async () => {
+    resolveInteractiveMock.mockReset();
+    resolveScriptedMock.mockReset();
+    resolveInteractiveMock.mockResolvedValue({
+      model,
+      params: {
+        prompt: 'p',
+        multiShot: true,
+        shotType: 'customize',
+        duration: 10,
+        multiPrompt: [
+          { prompt: 'a', duration: 3 },
+          { prompt: 'b', duration: 4 },
+        ],
+      },
+      files: {},
+    });
+    const orig = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    try {
+      await expect(resolveInputs(config, {}, makeDeps({}))).rejects.toThrow(/must match/);
+    } finally {
+      if (orig) Object.defineProperty(process.stdin, 'isTTY', orig);
+    }
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  flagsFullySpecifyInputs — array file slots                            */
+/*                                                                        */
+/*  Models like seedance-2.0-video-extend take their video via            */
+/*  `--video-urls` (array slot). A user who passed everything on the      */
+/*  command line must skip the wizard, exactly as `--video` users do.     */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('flagsFullySpecifyInputs — videoUrls/audioUrls models', () => {
+  // Non-text-primary so no prompt is needed to fully specify (v2v extends).
+  const videoUrlsOnly = Models.list().find(
+    (m) =>
+      !m.disabled &&
+      !m.inputType.startsWith('t') &&
+      !Models.getFileParam(m.id, 'videoUrl') &&
+      !!Models.getFileParam(m.id, 'videoUrls'),
+  );
+  // All audioUrls-only models today are text-primary (tts) — pass a prompt.
+  const audioUrlsOnly = Models.list().find(
+    (m) => !m.disabled && !Models.getFileParam(m.id, 'audioUrl') && !!Models.getFileParam(m.id, 'audioUrls'),
+  );
+
+  it("accepts --video-urls for the 'video' requirement", () => {
+    if (!videoUrlsOnly) return; // SDK has no such model right now — skip
+    const flow: FlowSpec = { ...config, requiredInputs: ['video'] };
+    expect(flagsFullySpecifyInputs(flow, { model: videoUrlsOnly.id, 'video-urls': ['clip.mp4'] })).toBe(true);
+  });
+
+  it("accepts --audio-urls for the 'audio' requirement", () => {
+    if (!audioUrlsOnly) return; // SDK has no such model right now — skip
+    const flow: FlowSpec = { ...config, requiredInputs: ['audio'] };
+    expect(flagsFullySpecifyInputs(flow, { model: audioUrlsOnly.id, prompt: 'hi', 'audio-urls': ['track.mp3'] })).toBe(
+      true,
+    );
+  });
+
+  it('still rejects when neither --video nor --video-urls is given', () => {
+    if (!videoUrlsOnly) return; // SDK has no such model right now — skip
+    const flow: FlowSpec = { ...config, requiredInputs: ['video'] };
+    expect(flagsFullySpecifyInputs(flow, { model: videoUrlsOnly.id })).toBe(false);
   });
 });
 

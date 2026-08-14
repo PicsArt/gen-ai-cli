@@ -92,7 +92,14 @@ export async function handleOutput(
     rawResultUrl: resultUrls[0],
     resultUrls: resultUrls.length > 1 ? resultUrls : undefined,
     durationMs: result.durationMs,
-    status: result.status === 'completed' ? 'completed' : result.status === 'timeout' ? 'timeout' : 'failed',
+    status:
+      result.status === 'completed'
+        ? 'completed'
+        : result.status === 'timeout'
+          ? 'timeout'
+          : result.status === 'cancelled'
+            ? 'cancelled'
+            : 'failed',
     error: result.error,
   };
   try {
