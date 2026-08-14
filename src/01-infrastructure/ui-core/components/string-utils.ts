@@ -198,3 +198,35 @@ export function tailWindow(text: string, maxWidth: number): { display: string; s
 export function getMaxWidth(maxWidth?: number): number {
   return maxWidth ?? (process.stdout.columns || 80);
 }
+
+// Control bytes an untrusted string could use to smuggle terminal escapes:
+// all C0 controls except \t and \n (handled separately), DEL, and the C1
+// range (0x9b is an alias for CSI on many terminals). \x1b is included —
+// legitimate SGR/OSC 8 sequences are preserved by sanitizeTerminalText
+// before this strip runs.
+// eslint-disable-next-line no-control-regex
+const UNSAFE_CONTROL_RE = /[\0-\x08\x0b-\x1f\x7f-\x9f]/g;
+// eslint-disable-next-line no-control-regex
+const HAS_CONTROL_RE = /[\0-\x08\x0b-\x1f\x7f-\x9f\t]/;
+// Same alternatives as STRIP_ANSI_RE, but a fresh /g instance for matchAll.
+// eslint-disable-next-line no-control-regex
+const ALLOWED_ANSI_RE = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07]*\x07/g;
+
+/**
+ * Scrub raw control bytes from an untrusted string headed for the terminal
+ * (API/model-supplied names, URLs, messages) so it cannot inject escape
+ * sequences (cursor movement, OSC 52 clipboard writes, title spoofing).
+ * SGR color and OSC 8 hyperlink sequences that our own renderers emit are
+ * preserved; newlines survive and tabs become single spaces.
+ */
+export function sanitizeTerminalText(text: string): string {
+  if (!HAS_CONTROL_RE.test(text)) return text;
+  const clean = (s: string): string => s.replace(/\t/g, ' ').replace(UNSAFE_CONTROL_RE, '');
+  let result = '';
+  let last = 0;
+  for (const match of text.matchAll(ALLOWED_ANSI_RE)) {
+    result += clean(text.slice(last, match.index)) + match[0];
+    last = match.index + match[0].length;
+  }
+  return result + clean(text.slice(last));
+}
