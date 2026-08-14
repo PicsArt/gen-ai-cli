@@ -54,14 +54,19 @@ export function renderCard(lines: string[], opts: CardOptions): string {
     totalWidth = Math.min(minInnerWidth + 2, maxWidth); // +2 for the two border chars
   }
 
-  // Inner width is total minus the two border columns
-  const innerWidth = totalWidth - 2;
+  // Inner width is total minus the two border columns (floored at 0 —
+  // a width option smaller than the borders must not crash repeat())
+  const innerWidth = Math.max(0, totalWidth - 2);
 
   // Build top border
   let topBorder: string;
   if (title) {
-    // ╭─ Title ───────────╮
-    const titleText = `${HORIZONTAL} ${title} `;
+    // ╭─ Title ───────────╮  (truncate a title longer than the card so the
+    // top border can't stick out past the right edge)
+    let titleText = `${HORIZONTAL} ${title} `;
+    if (visibleWidth(titleText) > innerWidth) {
+      titleText = truncate(titleText, innerWidth);
+    }
     const titleVisibleLen = visibleWidth(titleText);
     const remainingDashes = Math.max(0, innerWidth - titleVisibleLen);
     topBorder = colorFn(TOP_LEFT + titleText + HORIZONTAL.repeat(remainingDashes) + TOP_RIGHT);
@@ -72,8 +77,9 @@ export function renderCard(lines: string[], opts: CardOptions): string {
   // Build bottom border
   const bottomBorder = colorFn(BOTTOM_LEFT + HORIZONTAL.repeat(innerWidth) + BOTTOM_RIGHT);
 
-  // Build content lines with side borders and padding
-  const contentAvailableWidth = innerWidth - padding * 2;
+  // Build content lines with side borders and padding (floored at 0 so a
+  // tiny width option can't produce negative-width truncation/padding)
+  const contentAvailableWidth = Math.max(0, innerWidth - padding * 2);
   const output: string[] = [topBorder];
 
   // Helper to create a bordered line with content

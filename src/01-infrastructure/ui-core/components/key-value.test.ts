@@ -43,4 +43,22 @@ describe('renderKeyValue', () => {
   it('returns empty string for empty pairs', () => {
     expect(renderKeyValue([], { color })).toBe('');
   });
+
+  it('word-wraps long values and aligns continuation lines under the value column', () => {
+    const longValue = 'one two three four five six seven eight nine ten eleven twelve';
+    const result = renderKeyValue([['Key', longValue]], { color, maxWidth: 40 });
+    const lines = result.split('\n');
+    expect(lines.length).toBeGreaterThan(1);
+    // Continuation lines start at the same column as the first value chunk
+    const valueStart = lines[0].indexOf('one');
+    expect(lines[1].search(/\S/)).toBe(valueStart);
+    // Re-joined text preserves every word
+    const rejoined = lines.map((l) => l.trim()).join(' ');
+    expect(rejoined).toContain('twelve');
+  });
+
+  it('does not wrap when maxWidth is generous', () => {
+    const result = renderKeyValue([['Key', 'short value']], { color, maxWidth: 200 });
+    expect(result.split('\n')).toHaveLength(1);
+  });
 });

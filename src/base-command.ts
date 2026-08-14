@@ -131,6 +131,14 @@ export abstract class BaseCommand extends Command {
       });
     }
 
+    // User pressed Ctrl+C / ESC in an interactive prompt (safePrompt sentinel).
+    // Not an error: exit silently with the dedicated cancel code — no error
+    // card, no debug log. The REPL intercepts this sentinel before it gets here.
+    if (err instanceof CliError && err.message === 'USER_CANCEL') {
+      await this.exitAfterFlush(ExitCode.USER_CANCEL);
+      return;
+    }
+
     if (err instanceof CliError) {
       const logPath = this.tryWriteDebugLog(err);
 

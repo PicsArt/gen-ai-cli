@@ -19,8 +19,9 @@ export function fuzzyScore(query: string, text: string): number {
   for (let ti = 0; ti < t.length && qi < q.length; ti++) {
     if (t[ti] === q[qi]) {
       score += 10;
-      // Bonus for consecutive matches
-      if (lastMatchIdx === ti - 1) {
+      // Bonus for consecutive matches (ti > 0 guard: at ti === 0 the initial
+      // lastMatchIdx of -1 would equal ti - 1 and fake a consecutive match)
+      if (ti > 0 && lastMatchIdx === ti - 1) {
         consecutive++;
         score += consecutive * 5;
       } else {

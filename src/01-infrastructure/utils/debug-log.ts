@@ -41,9 +41,18 @@ export function writeDebugLog(entry: { cliVersion: string; command: string; erro
 
   entries.push(full);
   if (entries.length > MAX_ENTRIES) entries = entries.slice(-MAX_ENTRIES);
-  const json = JSON.stringify(entries, null, 2);
-  if (json.length > MAX_SIZE) entries = entries.slice(-1);
+  let json = JSON.stringify(entries, null, 2);
+  if (json.length > MAX_SIZE) {
+    entries = entries.slice(-1);
+    json = JSON.stringify(entries, null, 2);
+  }
+  if (json.length > MAX_SIZE) {
+    // A single oversized entry (huge stack) — trim the stack so the log
+    // can never grow past MAX_SIZE.
+    entries[0].stack = entries[0].stack?.slice(0, 10_000);
+    json = JSON.stringify(entries, null, 2);
+  }
 
-  fs.writeFileSync(logPath, JSON.stringify(entries, null, 2), { mode: 0o600 });
+  fs.writeFileSync(logPath, json, { mode: 0o600 });
   return logPath;
 }

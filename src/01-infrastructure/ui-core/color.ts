@@ -1,4 +1,4 @@
-import { Chalk, type ChalkInstance } from 'chalk';
+import { Chalk, type ChalkInstance, supportsColor, supportsColorStderr } from 'chalk';
 import { stripAnsi } from './components/string-utils.ts';
 
 const BRAND_PRIMARY = '#E859B4';
@@ -74,7 +74,15 @@ function createDisabledManager(): ColorManager {
 }
 
 function createEnabledManager(): ColorManager {
-  const c: ChalkInstance = new Chalk({ level: 3 });
+  // Respect the terminal's actual color capability instead of forcing
+  // truecolor — 24-bit SGR sequences render as garbage on 16/256-color
+  // terminals. UI goes to both stdout and stderr, so take the better of the
+  // two detections; floor at level 1 since the enable decision is already made.
+  const detected = Math.max(
+    supportsColor ? supportsColor.level : 0,
+    supportsColorStderr ? supportsColorStderr.level : 0,
+  );
+  const c: ChalkInstance = new Chalk({ level: Math.max(1, detected) as 1 | 2 | 3 });
   return {
     enabled: true,
     red: (t) => c.red(t),

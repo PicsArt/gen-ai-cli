@@ -15,6 +15,42 @@ export interface PromptBoxOptions {
 
 const HORIZONTAL = '\u2500';
 
+/** Step one code point left from `pos`, never splitting a surrogate pair. */
+export function prevCharBoundary(text: string, pos: number): number {
+  if (pos <= 0) return 0;
+  const prev = text.charCodeAt(pos - 1);
+  // Low surrogate preceded by a high surrogate \u2192 step over both units.
+  if (prev >= 0xdc00 && prev <= 0xdfff && pos >= 2) {
+    const before = text.charCodeAt(pos - 2);
+    if (before >= 0xd800 && before <= 0xdbff) return pos - 2;
+  }
+  return pos - 1;
+}
+
+/** Step one code point right from `pos`, never splitting a surrogate pair. */
+export function nextCharBoundary(text: string, pos: number): number {
+  if (pos >= text.length) return text.length;
+  const cur = text.charCodeAt(pos);
+  // High surrogate followed by a low surrogate \u2192 step over both units.
+  if (cur >= 0xd800 && cur <= 0xdbff && pos + 1 < text.length) {
+    const after = text.charCodeAt(pos + 1);
+    if (after >= 0xdc00 && after <= 0xdfff) return pos + 2;
+  }
+  return pos + 1;
+}
+
+/**
+ * Sanitize typed or pasted input before inserting it into the buffer:
+ * normalize CRLF/CR to LF and drop all other control characters (a paste
+ * arrives as one multi-byte chunk and may carry \r, tabs, ANSI noise).
+ */
+export function sanitizeInsertion(str: string): string {
+  return str
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, ' ')
+    .replace(/[\0-\x08\x0b-\x1f\x7f]/g, '');
+}
+
 export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | null> {
   const color = getColor();
   const termWidth = process.stdout.columns || 80;
@@ -40,6 +76,7 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
     let userText = '';
     let cursorPos = 0; // cursor position within userText
     let prevLineCount = 0; // content lines from previous render
+    let prevCursorLine = 0; // content line the cursor was left on by the previous render
 
     if (process.stdin.setRawMode) process.stdin.setRawMode(true);
     process.stdin.resume();
@@ -98,16 +135,34 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       const linesFromBottom = outputLines.length - cursorLine;
       // Move up from bottom rule to cursor line (+1 for the rule itself)
       process.stderr.write(`\x1B[${linesFromBottom}A`);
-      // Position column
-      const colOffset = cursorLine === 0 ? prefixVis + charsBeforeCursor : 4 + charsBeforeCursor;
+      // Position column — clamp to the rule width so a cursor past the
+      // truncated display area can't wrap onto the next terminal row.
+      const colOffset = Math.min(
+        cursorLine === 0 ? prefixVis + charsBeforeCursor : 4 + charsBeforeCursor,
+        ruleWidth - 1,
+      );
       process.stderr.write(`\x1B[${colOffset + 1}G`);
       prevLineCount = outputLines.length;
+      prevCursorLine = cursorLine;
+    }
+
+    let warningTimer: NodeJS.Timeout | null = null;
+    /** Erase a pending "prompt cannot be empty" flash, if one is on screen. */
+    function clearWarning(): void {
+      if (!warningTimer) return;
+      clearTimeout(warningTimer);
+      warningTimer = null;
+      process.stderr.write('\x1B[1A\r\x1B[J');
     }
 
     let cleaned = false;
     function cleanup(): void {
       if (cleaned) return;
       cleaned = true;
+      if (warningTimer) {
+        clearTimeout(warningTimer);
+        warningTimer = null;
+      }
       process.stdin.removeListener('data', onData);
       process.removeListener('SIGINT', onSigint);
       if (process.stdin.setRawMode) process.stdin.setRawMode(false);
@@ -126,6 +181,10 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
 
     function onData(buf: Buffer): void {
       const str = buf.toString('utf-8');
+
+      // Any key other than Enter dismisses a pending empty-prompt warning
+      // (Enter manages it itself) so the follow-up render starts clean.
+      if (warningTimer && str !== '\r') clearWarning();
 
       // ESC → cancel (single ESC byte only, not part of a sequence)
       if (str === '\x1b') {
@@ -160,13 +219,23 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       // Enter (CR) → submit
       if (str === '\r') {
         if (!userText.trim()) {
-          // Flash warning — clear content area, show warning, re-render
-          if (prevLineCount > 0) {
-            process.stderr.write(`\x1B[${prevLineCount}A\x1B[J`);
-            prevLineCount = 0;
+          // Flash warning — move to the first content line (cursor sits on
+          // prevCursorLine, not necessarily the last line), clear downward,
+          // show the warning, then erase it and re-render.
+          if (warningTimer) {
+            // Warning already showing — keep it, restart the timer below.
+            clearWarning();
+          } else if (prevCursorLine > 0) {
+            process.stderr.write(`\x1B[${prevCursorLine}A`);
           }
+          process.stderr.write('\r\x1B[J');
+          prevLineCount = 0;
           process.stderr.write(`${color.warning('  prompt cannot be empty')}\n`);
-          setTimeout(() => render(), 600);
+          warningTimer = setTimeout(() => {
+            warningTimer = null;
+            process.stderr.write('\x1B[1A\r\x1B[J');
+            render();
+          }, 600);
           return;
         }
         cleanup();
@@ -174,21 +243,24 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
         return;
       }
 
-      // Backspace (DEL 0x7f or BS 0x08)
+      // Backspace (DEL 0x7f or BS 0x08) — delete one code point, not one
+      // UTF-16 unit, so emoji are removed whole instead of leaving half a
+      // surrogate pair in the prompt.
       if (str === '\x7f' || str === '\x08') {
         if (cursorPos > 0) {
-          userText = userText.slice(0, cursorPos - 1) + userText.slice(cursorPos);
-          cursorPos--;
+          const start = prevCharBoundary(userText, cursorPos);
+          userText = userText.slice(0, start) + userText.slice(cursorPos);
+          cursorPos = start;
           render();
         }
         return;
       }
 
-      // Arrow keys (escape sequences)
+      // Arrow keys (escape sequences) — move by code point
       if (str === '\x1b[D') {
         // Left arrow
         if (cursorPos > 0) {
-          cursorPos--;
+          cursorPos = prevCharBoundary(userText, cursorPos);
           render();
         }
         return;
@@ -196,7 +268,7 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       if (str === '\x1b[C') {
         // Right arrow
         if (cursorPos < userText.length) {
-          cursorPos++;
+          cursorPos = nextCharBoundary(userText, cursorPos);
           render();
         }
         return;
@@ -216,12 +288,15 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
 
       // Ignore other escape sequences (up/down arrows, function keys, etc.)
       if (str.startsWith('\x1b')) return;
-      // Ignore other control chars
-      if (str.charCodeAt(0) < 32) return;
 
-      // Printable characters — insert at cursor position
-      userText = userText.slice(0, cursorPos) + str + userText.slice(cursorPos);
-      cursorPos += str.length;
+      // Printable characters or a pasted chunk — sanitize (a paste arrives
+      // as one multi-char chunk that may contain \r and other control
+      // bytes; checking only the first char would let them through raw),
+      // then insert at the cursor position.
+      const insertText = sanitizeInsertion(str);
+      if (!insertText) return;
+      userText = userText.slice(0, cursorPos) + insertText + userText.slice(cursorPos);
+      cursorPos += insertText.length;
       render();
     }
 

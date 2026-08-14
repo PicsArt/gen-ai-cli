@@ -48,6 +48,29 @@ describe('renderCard — width', () => {
   });
 });
 
+describe('renderCard — edge cases', () => {
+  it('truncates a title longer than the card so the top border never overflows', () => {
+    const result = renderCard(['x'], { color, title: 'A very long title that exceeds the card width', width: 20 });
+    const lines = result.split('\n').filter((l) => l.length > 0);
+    const widths = lines.map((l) => visibleWidth(l));
+    for (const w of widths) expect(w).toBe(20);
+  });
+
+  it('survives a tiny width without throwing or emitting negative padding', () => {
+    for (const width of [1, 2, 4, 6]) {
+      const result = renderCard(['some content'], { color, width });
+      expect(result.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('truncates content lines that exceed the available width', () => {
+    const result = renderCard(['B'.repeat(300)], { color, maxWidth: 40 });
+    const lines = result.split('\n').filter((l) => l.length > 0);
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+    expect(result).toContain('…');
+  });
+});
+
 describe('renderCard — vertical padding', () => {
   it('adds empty padding lines above and below content', () => {
     const result = renderCard(['Content line'], { color });
