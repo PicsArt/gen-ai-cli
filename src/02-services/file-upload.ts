@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { ApiError } from '#infra/errors/api.ts';
 import { FileError } from '#infra/errors/file.ts';
 import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getUploadUrl, makeHeaders } from '#services/constants.ts';
@@ -42,7 +43,10 @@ export async function uploadFile(filePath: string, opts: UploadOptions): Promise
     throw new FileError(absPath, 'is a directory, not a file');
   }
   if (stat.size > MAX_UPLOAD_SIZE) {
-    throw new Error(`File too large (${Math.round(stat.size / 1024 / 1024)}MB). Maximum upload size is 500MB.`);
+    throw new FileError(
+      absPath,
+      `file too large (${Math.round(stat.size / 1024 / 1024)}MB) — maximum upload size is 500MB`,
+    );
   }
   const ext = path.extname(absPath).toLowerCase();
   const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
@@ -78,7 +82,9 @@ export async function uploadFile(filePath: string, opts: UploadOptions): Promise
   if (!res.ok) {
     const body = await res.text();
     const cleanBody = body.startsWith('<') ? res.statusText || `HTTP ${res.status}` : body;
-    throw new Error(`Upload failed (${res.status}): ${cleanBody}`);
+    // ApiError → exit code 5 (and the built-in 429/5xx hints), instead of a
+    // plain Error collapsing to GENERAL_ERROR (1).
+    throw new ApiError(res.status, `Upload failed: ${cleanBody}`);
   }
 
   const data = (await res.json()) as Record<string, unknown>;

@@ -1,4 +1,5 @@
 import type { ColorManager } from './color.ts';
+import { getColor } from './color.ts';
 import { renderCard } from './components/card.ts';
 import { renderDivider } from './components/divider.ts';
 import { visibleWidth } from './components/string-utils.ts';
@@ -153,15 +154,36 @@ function createOutputManagerImpl(opts: OutputManagerOptions): OutputManager {
 }
 
 let _instance: OutputManager | null = null;
+let _quiet = false;
 
 export function createOutputManager(opts: OutputManagerOptions): OutputManager {
   _instance = createOutputManagerImpl(opts);
+  _quiet = opts.quiet;
   return _instance;
 }
 
 export function getOutput(): OutputManager {
   if (!_instance) {
-    throw new Error('OutputManager has not been initialized. Call createOutputManager() first.');
+    // Mirror getColor(): self-initialize with safe defaults instead of
+    // throwing. Services (auth, authenticated-fetch) may log before a
+    // command has primed the singleton — e.g. oclif built-in paths.
+    _instance = createOutputManagerImpl({
+      color: getColor(),
+      quiet: false,
+      debug: false,
+      jsonMode: false,
+      plainMode: false,
+    });
   }
   return _instance;
+}
+
+/**
+ * Whether the current invocation runs with --quiet. Safe to call before any
+ * command initialized the OutputManager (returns false). Lets out-of-band
+ * writers (e.g. the update notice, which bypasses OutputManager because it
+ * also runs on oclif built-in paths) still honor the quiet contract.
+ */
+export function isQuietMode(): boolean {
+  return _quiet;
 }

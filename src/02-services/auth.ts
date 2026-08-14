@@ -1,9 +1,9 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
-import * as path from 'node:path';
 import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import { getOutput } from '#infra/ui-core/output.ts';
+import { ensureDataDir } from '#infra/utils/data-dir.ts';
 import { openInDefault } from '#infra/utils/open.ts';
 import {
   getApiUrl,
@@ -28,10 +28,8 @@ export interface Credentials {
 /* ── Credential storage (file-based, mode 0o600) ────────────── */
 
 function saveCredentials(creds: Credentials): void {
-  const credPath = getCredentialsPath();
-  const dir = path.dirname(credPath);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+  ensureDataDir();
+  fs.writeFileSync(getCredentialsPath(), JSON.stringify(creds, null, 2), { mode: 0o600 });
 }
 
 export function loadCredentials(): Credentials | null {

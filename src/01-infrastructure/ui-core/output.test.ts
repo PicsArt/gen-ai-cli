@@ -172,3 +172,29 @@ describe('createOutputManager — richTable()', () => {
     expect(stdout).toContain('Mode');
   });
 });
+
+describe('getOutput — lazy self-initialization', () => {
+  it('returns a working manager even when no command primed the singleton', async () => {
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    const fresh = await import('./output.ts');
+    // Regression: this used to throw "OutputManager has not been initialized",
+    // crashing any service that logged before BaseCommand.init() ran.
+    const out = fresh.getOutput();
+    const { stderr } = captureStreams(() => out.info('early message'));
+    expect(stderr).toContain('early message');
+  });
+});
+
+describe('isQuietMode', () => {
+  it('reflects the quiet flag of the last created manager', async () => {
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    const fresh = await import('./output.ts');
+    expect(fresh.isQuietMode()).toBe(false); // default before any init
+    fresh.createOutputManager({ color, quiet: true, debug: false, jsonMode: false, plainMode: false });
+    expect(fresh.isQuietMode()).toBe(true);
+    fresh.createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false });
+    expect(fresh.isQuietMode()).toBe(false);
+  });
+});
