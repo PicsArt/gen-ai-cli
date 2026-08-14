@@ -10,6 +10,7 @@ import type { CliDeps } from '#root/deps.ts';
 import type { ResolvedInputs } from '#root/types.ts';
 import {
   buildParamsFromFlags,
+  configDefaultModelId,
   deriveTopLevelPromptFromMulti,
   validateMultiShot,
   validateRequiredInputs,
@@ -22,11 +23,13 @@ import {
 export async function resolveScripted(
   flow: FlowSpec,
   flags: Record<string, unknown>,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _deps: CliDeps,
+  deps: CliDeps,
 ): Promise<ResolvedInputs> {
-  // 1. Resolve model (default to flow.defaultModel if not specified)
-  const modelFlag = (flags.model as string | undefined) ?? flow.defaultModel;
+  // 1. Resolve model. Precedence: explicit --model > user-config
+  // `defaultModel` (only when it passes this flow's filter — a global
+  // preference must not break unrelated commands) > flow.defaultModel.
+  const modelFlag =
+    (flags.model as string | undefined) ?? configDefaultModelId(flow, deps.config?.defaultModel) ?? flow.defaultModel;
   if (!modelFlag) {
     throw new UsageError('Model is required. Use --model (-m) to specify a model.');
   }
@@ -138,8 +141,10 @@ export async function resolveScripted(
     files.styleImage = value;
   }
 
-  // 3. Build params from flags (prompt lives INSIDE params per ResolvedInputs spec)
-  const params = buildParamsFromFlags(flags);
+  // 3. Build params from flags (prompt lives INSIDE params per ResolvedInputs
+  // spec). The model id makes coercion use the model's OWN descriptors rather
+  // than the cross-model merge — see collectGenerationContext.
+  const params = buildParamsFromFlags(flags, model.id);
   if (typeof flags.prompt === 'string') params.prompt = flags.prompt;
 
   // When the user populated a richer prompt source (Kling V3 multiPrompt

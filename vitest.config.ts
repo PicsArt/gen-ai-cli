@@ -10,6 +10,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'src/*.test.ts',
       'src/01-infrastructure/**/*.test.ts',
       'src/02-services/**/*.test.ts',
       'src/03-definitions/**/*.test.ts',

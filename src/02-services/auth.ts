@@ -221,7 +221,9 @@ async function exchangeCode(code: string, redirectUri: string): Promise<TokenRes
     signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
   const data = await parseTokenResponse(res);
-  if (!res.ok || !data || data.status !== 'success') {
+  // `data.response` guarded too: a 200 missing the payload must surface the
+  // descriptive error below, not a bare TypeError from the destructuring.
+  if (!res.ok || !data || data.status !== 'success' || !data.response) {
     throw new Error(`Token exchange failed: ${data?.message ?? data?.reason ?? `HTTP ${res.status}`}`);
   }
   if (!data.response.access_token || !data.response.refresh_token) {
@@ -387,7 +389,9 @@ async function doRefresh(): Promise<Credentials> {
   });
   const data = await parseTokenResponse(res);
 
-  if (!res.ok || !data || data.status !== 'success') {
+  // `data.response` guarded too: a 200 missing the payload must surface the
+  // descriptive error below, not a bare TypeError from the destructuring.
+  if (!res.ok || !data || data.status !== 'success' || !data.response) {
     if (res.status === 401 || res.status === 403) {
       throw new Error('Refresh token revoked. Run "gen-ai login" to re-authenticate.');
     }
@@ -459,15 +463,26 @@ export async function getToken(): Promise<{ token: string; uid: string }> {
   return { token: fresh.token, uid: fresh.uid };
 }
 
-export async function logout(): Promise<void> {
+export interface LogoutResult {
+  /**
+   * True when PICSART_ACCESS_TOKEN + PICSART_USER_ID remain set after the
+   * credentials file is removed — the shell is still authenticated via env
+   * vars, and only the operator can undo that. Callers should warn.
+   */
+  envCredentialsActive: boolean;
+}
+
+export async function logout(): Promise<LogoutResult> {
   const credPath = getCredentialsPath();
   try {
     fs.unlinkSync(credPath);
   } catch {
     /* already removed */
   }
+  return { envCredentialsActive: getEnvCredentials() !== null };
 }
 
 export async function whoami(): Promise<Credentials | null> {
-  return loadCredentials();
+  // Same precedence as getToken: env credentials (CI mode) win over the file.
+  return getEnvCredentials() ?? loadCredentials();
 }

@@ -140,7 +140,9 @@ function coerceEnumString(raw: unknown, descriptor: EnumDescriptor<string>): str
   if (typeof raw !== 'string') {
     throw new UsageError(`Expected a string, got ${describeValue(raw)}. Allowed: ${listOptions(descriptor.options)}.`);
   }
-  if (!descriptor.options.some((o) => o.id === raw)) {
+  // Zero options means the real values live in a dynamic platform catalog
+  // (e.g. videoId) — membership can't be checked locally, so pass through.
+  if (descriptor.options.length > 0 && !descriptor.options.some((o) => o.id === raw)) {
     throw new UsageError(`Invalid value "${raw}". Allowed: ${listOptions(descriptor.options)}.`);
   }
   return raw;
@@ -151,7 +153,8 @@ function coerceEnumNumber(raw: unknown, descriptor: EnumDescriptor<number>): num
   if (num === undefined) {
     throw new UsageError(`Expected a number, got "${String(raw)}". Allowed: ${listOptions(descriptor.options)}.`);
   }
-  if (!descriptor.options.some((o) => o.id === num)) {
+  // Zero options: dynamic platform-catalog values — see coerceEnumString.
+  if (descriptor.options.length > 0 && !descriptor.options.some((o) => o.id === num)) {
     throw new UsageError(`Invalid value ${num}. Allowed: ${listOptions(descriptor.options)}.`);
   }
   return num;
@@ -204,22 +207,21 @@ function coerceText(raw: unknown, descriptor: TextDescriptor): string {
 
 /**
  * When an object-array descriptor declares a subfield literally named
- * `index`, populate it positionally (1, 2, 3, …) unless the caller supplied
- * a non-zero value. Several vendors (Kling V3 multi-shot, omni-image-list)
- * require 1-based consecutive indices but the SDK descriptor defaults to 0,
- * so without this step every item ships with `index: 0` and the API rejects.
+ * `index`, populate it with consecutive values starting at `start` —
+ * the index descriptor's declared minimum (0 for Kling V3 multiPrompt,
+ * whose range is 0-5 with array.max 6; 1-based numbering would overflow
+ * that range at six items). Vendors require distinct consecutive indices;
+ * without this step every item ships the descriptor default and the API
+ * rejects.
  *
- * Pure — returns a new array. Caller-supplied non-zero indices are preserved
- * verbatim; only the all-zero default gets rewritten.
+ * Renumbers unconditionally — the DECISION to renumber belongs to the
+ * readers, which know whether the user actually passed the `--*-index`
+ * flag (an explicit index, even 0, is preserved by not calling this).
+ *
+ * Pure — returns a new array.
  */
-export function autoNumberIndexField(items: readonly Record<string, unknown>[]): Record<string, unknown>[] {
-  if (items.length === 0) return [];
-  const callerSupplied = items.some((item) => {
-    const v = item.index;
-    return typeof v === 'number' && v > 0;
-  });
-  if (callerSupplied) return items.map((item) => ({ ...item }));
-  return items.map((item, i) => ({ ...item, index: i + 1 }));
+export function autoNumberIndexField(items: readonly Record<string, unknown>[], start = 1): Record<string, unknown>[] {
+  return items.map((item, i) => ({ ...item, index: start + i }));
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */

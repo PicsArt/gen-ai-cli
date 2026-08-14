@@ -27,7 +27,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AuthError, ExitCode, NetworkError } from '#infra/errors/index.ts';
-import { type Credentials, getEnvCredentials, getToken, loadCredentials, logout, whoami } from './auth.ts';
+import {
+  type Credentials,
+  getEnvCredentials,
+  getToken,
+  loadCredentials,
+  logout,
+  refreshAccessToken,
+  whoami,
+} from './auth.ts';
 
 let tmpHome: string;
 let originalHome: string | undefined;
@@ -113,6 +121,21 @@ describe('logout', () => {
   it('is idempotent — does not throw when no file exists', async () => {
     await expect(logout()).resolves.not.toThrow();
   });
+
+  it('reports env credentials still active after removing the file (CI/env auth)', async () => {
+    process.env.PICSART_ACCESS_TOKEN = 'env-tkn';
+    process.env.PICSART_USER_ID = 'env-uid';
+    writeCreds(validCreds());
+    const result = await logout();
+    expect(fs.existsSync(credPath())).toBe(false); // file still removed
+    expect(result.envCredentialsActive).toBe(true);
+  });
+
+  it('reports no active env credentials on a plain logout', async () => {
+    writeCreds(validCreds());
+    const result = await logout();
+    expect(result.envCredentialsActive).toBe(false);
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -128,6 +151,22 @@ describe('whoami', () => {
     writeCreds(validCreds({ email: 'me@example.com' }));
     const c = await whoami();
     expect(c?.email).toBe('me@example.com');
+  });
+
+  it('returns env credentials when set and no credentials file exists (CI/env auth)', async () => {
+    process.env.PICSART_ACCESS_TOKEN = 'env-tkn';
+    process.env.PICSART_USER_ID = 'env-uid';
+    const c = await whoami();
+    expect(c?.token).toBe('env-tkn');
+    expect(c?.uid).toBe('env-uid');
+  });
+
+  it('prefers env credentials over the file — same precedence as getToken', async () => {
+    process.env.PICSART_ACCESS_TOKEN = 'env-tkn';
+    process.env.PICSART_USER_ID = 'env-uid';
+    writeCreds(validCreds({ uid: 'file-uid' }));
+    const c = await whoami();
+    expect(c?.uid).toBe('env-uid');
   });
 });
 
@@ -229,6 +268,30 @@ describe('getToken', () => {
     } finally {
       globalThis.fetch = originalFetch;
       if (origTty) Object.defineProperty(process.stdin, 'isTTY', origTty);
+    }
+  });
+
+  it('throws the descriptive refresh error (not a bare TypeError) when a 200 lacks `response`', async () => {
+    // Regression: a 200 { status: 'success' } with no `response` payload used
+    // to hit the destructuring line and throw a bare TypeError instead of the
+    // intended "Token refresh failed…" error.
+    writeCreds(validCreds({ expiresAt: new Date(Date.now() - 3600_000).toISOString() }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ status: 'success' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch;
+    try {
+      const err = await refreshAccessToken().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(TypeError);
+      expect((err as Error).message).toMatch(/Token refresh failed/);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 

@@ -18,6 +18,7 @@ const ensureSubfolderMock = vi.hoisted(() => vi.fn());
 const saveFileToDriveMock = vi.hoisted(() => vi.fn());
 const runWorkflowMock = vi.hoisted(() => vi.fn());
 const getAiClientMock = vi.hoisted(() => vi.fn());
+const warnMock = vi.hoisted(() => vi.fn());
 
 vi.mock('#services/drive.ts', () => ({
   ensureRootFolder: ensureRootFolderMock,
@@ -26,6 +27,9 @@ vi.mock('#services/drive.ts', () => ({
 }));
 vi.mock('#services/client.ts', () => ({
   getAiClient: getAiClientMock,
+}));
+vi.mock('#infra/ui-core/output.ts', () => ({
+  getOutput: () => ({ warn: warnMock }),
 }));
 
 import { buildDriveContext } from './build-drive-context.ts';
@@ -61,6 +65,15 @@ describe('buildDriveContext — failure handling', () => {
     ensureSubfolderMock.mockReset().mockRejectedValue(new Error('no perms'));
     const ctx = await buildDriveContext({ token: 't', uid: 'u', uploadUrl: 'up', driveFolder: 'x' });
     expect(ctx).toBeUndefined();
+  });
+
+  it('emits a visible Drive warning on failure — --save-to-drive must not silently no-op', async () => {
+    warnMock.mockReset();
+    ensureRootFolderMock.mockReset().mockRejectedValue(new Error('drive down'));
+    await buildDriveContext({ token: 't', uid: 'u', uploadUrl: 'up' });
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock.mock.calls[0][0]).toMatch(/drive/i);
+    expect(warnMock.mock.calls[0][0]).toContain('drive down');
   });
 });
 

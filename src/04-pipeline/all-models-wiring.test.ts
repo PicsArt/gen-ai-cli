@@ -85,10 +85,10 @@ function synthesizeFlags(model: ModelDefinition, catalog: Catalog): SynthesizedF
     if (SKIP_KEYS.has(key)) continue;
     const surface = catalog.bySdkKey.get(key);
     if (!surface) continue;
-    // Use the catalog's MERGED descriptor — the flag-reader coerces against
-    // that when ranges/enums differ across models, so synthesizing from the
-    // model's own descriptor can produce values outside the merged range.
-    const value = synthesizeForDescriptor(surface.descriptor);
+    // Synthesize from the model's OWN descriptor — the resolver passes the
+    // model id to the flag-reader, which coerces against exactly this
+    // descriptor (the merged view is only the fallback for unknown models).
+    const value = synthesizeForDescriptor(surface.descriptorsByModel.get(model.id) ?? surface.descriptor);
     if (value === undefined) continue;
     flags[surface.flag] = value;
     expectedCtxKeys.push(key);
@@ -99,12 +99,20 @@ function synthesizeFlags(model: ModelDefinition, catalog: Catalog): SynthesizedF
 
 function synthesizeForDescriptor(descriptor: ParamDescriptor): unknown {
   switch (descriptor.kind) {
-    case 'text':
-      return 'synthetic value';
+    case 'text': {
+      // Respect the model's own minLength (e.g. heygen prompts require 20+).
+      const base = 'synthetic value';
+      return base.padEnd(descriptor.minLength ?? 0, 'x');
+    }
     case 'boolean':
       return descriptor.default ?? false;
-    case 'range':
-      return descriptor.default ?? descriptor.min ?? 0;
+    case 'range': {
+      // Cast: RangeDescriptor types `default` as required, so TS collapses
+      // the `??` fallback to never — but real catalogs ship range params
+      // with no default (e.g. seed).
+      const range = descriptor as { default?: number; min?: number };
+      return range.default ?? range.min ?? 0;
+    }
     case 'enum':
       return descriptor.options[0]?.id;
     case 'file': {

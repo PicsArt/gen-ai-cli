@@ -304,7 +304,9 @@ describe('resolveScripted — Kling multi-shot pre-flight', () => {
     expect(out.params.shotType).toBe('customize');
   });
 
-  it('auto-numbers multiPrompt indices 1..N when the caller does not set them', async () => {
+  it('auto-numbers multiPrompt indices consecutively from the descriptor min (0-based for Kling)', async () => {
+    // Kling's multiPrompt.index descriptor is range 0-5 with array.max 6 —
+    // 1-based numbering would overflow the range at six shots.
     const out = await resolveScripted(
       ACCEPT_ALL,
       {
@@ -318,7 +320,7 @@ describe('resolveScripted — Kling multi-shot pre-flight', () => {
       deps,
     );
     const shots = out.params.multiPrompt as { index: number }[];
-    expect(shots.map((s) => s.index)).toEqual([1, 2, 3]);
+    expect(shots.map((s) => s.index)).toEqual([0, 1, 2]);
   });
 
   it('preserves caller-supplied multiPrompt indices', async () => {
@@ -337,5 +339,39 @@ describe('resolveScripted — Kling multi-shot pre-flight', () => {
     );
     const shots = out.params.multiPrompt as { index: number }[];
     expect(shots.map((s) => s.index)).toEqual([2, 4]);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  User-config defaultModel (gen-ai config set defaultModel <id>)        */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('resolveScripted — user-config defaultModel', () => {
+  it('uses config.defaultModel when --model is absent', async () => {
+    const m = someModel();
+    const withConfig = { flags: {}, config: { defaultModel: m.id } } as CliDeps;
+    const out = await resolveScripted(ACCEPT_ALL, { prompt: 'hi' }, withConfig);
+    expect(out.model.id).toBe(m.id);
+  });
+
+  it('an explicit --model beats config.defaultModel', async () => {
+    const models = Models.list().filter((m) => !m.disabled);
+    const [a, b] = models;
+    const withConfig = { flags: {}, config: { defaultModel: a.id } } as CliDeps;
+    const out = await resolveScripted(ACCEPT_ALL, { model: b.id, prompt: 'hi' }, withConfig);
+    expect(out.model.id).toBe(b.id);
+  });
+
+  it('ignores a config defaultModel the flow filter rejects and falls back to flow.defaultModel', async () => {
+    const m = someModel();
+    const other = Models.list().find((x) => !x.disabled && x.id !== m.id) as ModelDefinition;
+    const flow: FlowSpec = {
+      ...ACCEPT_ALL,
+      modelFilter: (x) => x.id !== other.id, // reject the configured default
+      defaultModel: m.id,
+    };
+    const withConfig = { flags: {}, config: { defaultModel: other.id } } as CliDeps;
+    const out = await resolveScripted(flow, { prompt: 'hi' }, withConfig);
+    expect(out.model.id).toBe(m.id);
   });
 });

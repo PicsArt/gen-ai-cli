@@ -118,6 +118,12 @@ describe('runExtras — completed', () => {
     await runExtras(done({ model: { mode: 'video' } as ExecutionResult['model'] }), cfg(), deps);
     expect(previewMock).not.toHaveBeenCalled();
   });
+
+  it('`config set imagePreview false` disables the inline preview even when the terminal supports it', async () => {
+    supportsInlineMock.mockReturnValue(true);
+    await runExtras(done({ model: { mode: 'image' } as ExecutionResult['model'] }), cfg({ imagePreview: false }), deps);
+    expect(previewMock).not.toHaveBeenCalled();
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */

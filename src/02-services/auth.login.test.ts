@@ -200,6 +200,30 @@ describe('login — OAuth callback server', () => {
     await rejection;
   });
 
+  it('rejects with the descriptive exchange error when a 200 lacks a `response` payload', async () => {
+    // Regression: a 200 { status: 'success' } with no `response` used to hit
+    // the destructuring line and reject with a bare TypeError instead of the
+    // intended "Token exchange failed…" error.
+    globalThis.fetch = ((url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/oauth2/code/exchange')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'success' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return realFetch(url as string, init);
+    }) as typeof fetch;
+
+    const { promise, redirectUri, state } = await startLogin();
+    const rejection = expect(promise).rejects.toThrow(/Token exchange failed/);
+    const res = await realFetch(`${redirectUri}/?code=auth-code&state=${state}`);
+    expect(res.status).toBe(400);
+    await rejection;
+  });
+
   it('flushes the full error page before closing the server (missing code)', async () => {
     const { promise, redirectUri, state } = await startLogin();
 

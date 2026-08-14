@@ -28,8 +28,8 @@ export async function runExtras(result: ExecutionResult, config: OutputConfig, d
     return;
   }
 
-  // Image preview in terminal
-  if (result.model.mode === 'image' && supportsInlineImages()) {
+  // Image preview in terminal — `config set imagePreview false` opts out.
+  if (config.imagePreview !== false && result.model.mode === 'image' && supportsInlineImages()) {
     try {
       await previewUrl(result.url, 'result');
     } catch {

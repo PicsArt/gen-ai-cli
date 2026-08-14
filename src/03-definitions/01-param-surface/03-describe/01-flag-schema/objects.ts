@@ -26,7 +26,10 @@ import { humanizeKey, subfieldFlagName } from '../../01-primitives/02-coercion/i
 import type { ParamSurface } from '../../02-catalog/index.ts';
 import { aliasOpts, describeFlag } from './description.ts';
 
-export type ObjectFlagSet = Record<string, ReturnType<typeof Flags.string>>;
+// `unknown` (same as flag-schema's FlagSet): repeatable subfield flags are
+// OptionFlag<string[]>, non-array ones OptionFlag<string> — oclif's overload
+// types don't share a useful common supertype.
+export type ObjectFlagSet = Record<string, unknown>;
 
 export function describeObjectFlags(surface: ParamSurface): ObjectFlagSet {
   const desc = assertObject(surface);
@@ -38,9 +41,16 @@ export function describeObjectFlags(surface: ParamSurface): ObjectFlagSet {
 
   const label = describeFlag(surface);
 
+  // SDK convention: `array` undefined means the param is ONE bare object
+  // (e.g. loraWeights), so its flags take a single value — repeatable flags
+  // would make the interpret-half ship `[{...}]` where the API wants `{...}`.
+  const repeatable = desc.array !== undefined;
+
   if (fieldKeys.length === 1) {
     return {
-      [surface.flag]: Flags.string({ description: label, multiple: true, ...aliasOpts(surface) }),
+      [surface.flag]: repeatable
+        ? Flags.string({ description: label, multiple: true, ...aliasOpts(surface) })
+        : Flags.string({ description: label, ...aliasOpts(surface) }),
     };
   }
 
@@ -48,10 +58,10 @@ export function describeObjectFlags(surface: ParamSurface): ObjectFlagSet {
   // the parent, and there is no single parent flag to attach them to.
   const out: ObjectFlagSet = {};
   for (const subKey of fieldKeys) {
-    out[subfieldFlagName(surface.flag, subKey)] = Flags.string({
-      description: `${label} — ${humanizeKey(subKey)}`,
-      multiple: true,
-    });
+    const description = `${label} — ${humanizeKey(subKey)}`;
+    out[subfieldFlagName(surface.flag, subKey)] = repeatable
+      ? Flags.string({ description, multiple: true })
+      : Flags.string({ description });
   }
   return out;
 }

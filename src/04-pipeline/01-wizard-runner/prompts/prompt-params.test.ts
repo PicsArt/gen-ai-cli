@@ -23,6 +23,10 @@ const outputInfoMock = vi.hoisted(() => vi.fn());
 vi.mock('#param-surface', () => ({
   getCatalog: () => ({ all: () => [], bySdkKey: new Map(), byFlag: new Map() }),
   generateWizardStepsFromCatalog: () => schemaStepsMock.value,
+  // Unit isolation: answer interpretation is the wizard-reader's job and has
+  // its own spec (04-interpret/02-wizard-reader). The integration spec
+  // (prompt-params.integration.test.ts) exercises the real one.
+  collectContextFromAnswers: (answers: Record<string, unknown>) => answers,
 }));
 vi.mock('#flows', async () => {
   const real = await vi.importActual<typeof import('#flows')>('#flows');
@@ -180,6 +184,7 @@ describe('promptForParams — object descriptors', () => {
     schemaStepsMock.value = [
       {
         kind: 'object',
+        array: true,
         key: 'multiPrompt',
         label: 'Shots',
         required: true,
@@ -214,6 +219,7 @@ describe('promptForParams — object descriptors', () => {
     schemaStepsMock.value = [
       {
         kind: 'object',
+        array: true,
         key: 'multiPrompt',
         label: 'Shots',
         required: true,
@@ -236,6 +242,7 @@ describe('promptForParams — object descriptors', () => {
     schemaStepsMock.value = [
       {
         kind: 'object',
+        array: true,
         key: 'multiPrompt',
         label: 'Shots',
         arrayMax: 6,
@@ -252,6 +259,7 @@ describe('promptForParams — object descriptors', () => {
     schemaStepsMock.value = [
       {
         kind: 'object',
+        array: true,
         key: 'multiPrompt',
         label: 'Shots',
         arrayMax: 6,
@@ -271,6 +279,7 @@ describe('promptForParams — object descriptors', () => {
     schemaStepsMock.value = [
       {
         kind: 'object',
+        array: true,
         key: 'multiPrompt',
         label: 'Shots',
         arrayMax: 6,

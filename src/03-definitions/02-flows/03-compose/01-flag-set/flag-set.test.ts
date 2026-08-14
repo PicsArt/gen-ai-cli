@@ -182,6 +182,68 @@ describe('composeFlagsForFlow — collision precedence', () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */
+/*  SDK-gap flags — Kling fields buildPayload reads without a descriptor  */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('composeFlagsForFlow — SDK-gap flags (Kling)', () => {
+  type ComposedFlag = { aliases?: readonly string[]; type?: string };
+  const GAP_FLAGS = ['external-task-id', 'sound-effect-prompt', 'bgm-prompt', 'asmr-mode'] as const;
+
+  it('ships the four gap flags when the flow admits a Kling model', () => {
+    const flow = defineFlow({
+      id: 'video',
+      description: 'd',
+      modelFilter: (m) => m.inputType === 't2v',
+      staticFlagGroups: ['universal'],
+      staticStepGroups: [],
+      requiredInputs: [],
+    });
+    // T2V_MODEL's id is 'kling-fake' — a Kling-vendor model.
+    const flags = composeFlagsForFlow(flow, loadCatalog([T2V_MODEL as ModelLike], ALIAS_MAP), [T2V_MODEL]);
+    for (const gap of GAP_FLAGS) expect(flags[gap], `--${gap} missing`).toBeDefined();
+  });
+
+  it('gap flags carry their documented short aliases (task-id, sfx-prompt, bgm, asmr)', () => {
+    const flow = defineFlow({
+      id: 'video',
+      description: 'd',
+      modelFilter: (m) => m.inputType === 't2v',
+      staticFlagGroups: [],
+      staticStepGroups: [],
+      requiredInputs: [],
+    });
+    const flags = composeFlagsForFlow(flow, loadCatalog([T2V_MODEL as ModelLike], ALIAS_MAP), [T2V_MODEL]) as Record<
+      string,
+      ComposedFlag
+    >;
+    expect(flags['external-task-id'].aliases).toContain('task-id');
+    expect(flags['sound-effect-prompt'].aliases).toContain('sfx-prompt');
+    expect(flags['bgm-prompt'].aliases).toContain('bgm');
+    expect(flags['asmr-mode'].aliases).toContain('asmr');
+  });
+
+  it('omits the gap flags when no Kling model matches the flow', () => {
+    const flow = defineFlow({
+      id: 'image',
+      description: 'd',
+      modelFilter: (m) => m.inputType === 't2i',
+      staticFlagGroups: ['universal'],
+      staticStepGroups: [],
+      requiredInputs: [],
+    });
+    const flags = composeFlagsForFlow(flow, loadCatalog([T2I_MODEL as ModelLike], ALIAS_MAP), [T2I_MODEL]);
+    for (const gap of GAP_FLAGS) expect(flags[gap], `--${gap} should be absent`).toBeUndefined();
+  });
+
+  it('real SDK: the video flow ships --external-task-id (regression: flag was documented but never composed)', () => {
+    const models = Models.list();
+    const catalog = loadCatalog(models, ALIAS_MAP);
+    const flags = composeFlagsForFlow(FLOWS.video, catalog, models);
+    expect(flags['external-task-id']).toBeDefined();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
 /*  Real-SDK integration — the surface each command actually ships        */
 /* ─────────────────────────────────────────────────────────────────────── */
 

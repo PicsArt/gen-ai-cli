@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, extname } from 'node:path';
 import { Args, Flags } from '@oclif/core';
 import { FileError } from '#infra/errors/file.ts';
+import { detectMediaType } from '#infra/utils/media-types.ts';
 import { BaseCommand } from '#root/base-command.ts';
 import { getToken } from '#services/auth.ts';
-import { ensureRootFolder, saveFileToDrive } from '#services/drive.ts';
+import { ensureRootFolder, ensureSubfolder, saveFileToDrive } from '#services/drive.ts';
 import { uploadFile } from '#services/file-upload.ts';
 
 export interface UploadResult {
@@ -24,16 +25,21 @@ export async function runUploadToDrive(file: string, opts: RunUploadToDriveOptio
   if (!existsSync(file)) throw new FileError(file, 'file not found');
   const t0 = Date.now();
 
-  const displayName = opts.name ?? basename(file, '.mp4');
-  const finalName = displayName.endsWith('.mp4') ? displayName : `${displayName}.mp4`;
+  // Derive name + Drive resource type from the actual file — never force
+  // .mp4/VIDEO onto images or audio.
+  const ext = extname(file).toLowerCase();
+  const mediaType = detectMediaType(file);
+  const resourceType = mediaType === 'image' ? 'PHOTO' : mediaType === 'audio' ? 'AUDIO' : 'VIDEO';
+  const displayName = opts.name ?? basename(file);
+  const finalName = ext && !displayName.toLowerCase().endsWith(ext) ? `${displayName}${ext}` : displayName;
 
   const { token, uid } = await getToken();
   const cdnUrl = await uploadFile(file, { token, uid });
-  const folderUid = await ensureRootFolder();
+  const folderUid = opts.folder ? await ensureSubfolder(opts.folder) : await ensureRootFolder();
   const driveUid = await saveFileToDrive({
     url: cdnUrl,
     name: finalName,
-    resourceType: 'VIDEO',
+    resourceType,
     folderUid,
     attributes: { tool: 'gen-ai-cli', source: 'cli' },
   } as never);

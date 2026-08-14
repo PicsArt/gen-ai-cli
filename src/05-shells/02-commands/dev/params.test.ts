@@ -20,6 +20,7 @@ const readResolverSourcesMock = vi.hoisted(() => vi.fn(() => ({ resolver: '', ex
 
 vi.mock('#param-surface', () => ({
   ALIAS_MAP: { foo: { char: 'f' } },
+  EXPECTED_SDK_GAPS: new Set<string>(),
   loadCatalog: loadCatalogMock,
   auditCatalog: auditCatalogMock,
   findFileWiringGaps: findFileWiringGapsMock,

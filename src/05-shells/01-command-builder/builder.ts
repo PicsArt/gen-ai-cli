@@ -33,6 +33,7 @@
 import { Models } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { composeFlagsForFlow } from '#flows';
+import { ExitCode } from '#infra/errors/index.ts';
 import { createSpinner } from '#infra/ui-core/progress.ts';
 import { getCatalog } from '#param-surface';
 import { resolveInputs } from '#pipeline/02-resolve/resolve.ts';
@@ -186,6 +187,9 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
     trackGenerationFailed({ flow, flags, inputs, error: err });
 
     if (isCreditsError(err)) {
+      // The error is swallowed (friendly billing prompt instead of a crash),
+      // but the process must still exit non-zero so scripts see the failure.
+      process.exitCode = ExitCode.CREDITS_ERROR;
       await handleCreditsError(err, deps);
       return;
     }

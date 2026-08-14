@@ -168,3 +168,20 @@ export const MODEL_CONFLICT_RANGE: ModelLike = {
     overlap: { descriptor: { kind: 'range', min: 0, max: 1, default: 0.5 } },
   },
 };
+
+/* ── Degenerate enum — zero options (dynamic platform-catalog values) ─── */
+
+export const MODEL_ENUM_EMPTY: ModelLike = {
+  id: 'fx-enum-empty',
+  paramConfig: {
+    videoId: {
+      label: 'Video ID',
+      descriptor: {
+        kind: 'enum',
+        valueType: 'string',
+        options: [],
+        default: '',
+      },
+    },
+  },
+};

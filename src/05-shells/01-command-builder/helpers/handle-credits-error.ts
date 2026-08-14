@@ -2,6 +2,7 @@
  * Handle InsufficientCreditsError — offer to open billing page.
  */
 
+import { ApiError } from '#infra/errors/api.ts';
 import { InsufficientCreditsError } from '#infra/errors/credits.ts';
 import { openInDefault } from '#infra/utils/open.ts';
 import { selectWithNav } from '#pipeline/01-wizard-runner/nav.ts';
@@ -11,6 +12,9 @@ import { buildCheckoutUrl, CLI_CHECKOUT_ANALYTICS } from '#services/checkout-url
 
 export function isCreditsError(err: unknown): boolean {
   if (err instanceof InsufficientCreditsError) return true;
+  // HTTP 402 Payment Required — credits exhaustion even when the API's
+  // message doesn't mention "credit".
+  if (err instanceof ApiError && err.statusCode === 402) return true;
   if (err instanceof Error && /402|not enough.*credit|insufficient.*credit/i.test(err.message)) return true;
   return false;
 }

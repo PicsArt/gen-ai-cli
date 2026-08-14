@@ -35,6 +35,7 @@ export function buildOutputConfig(
     clipboard,
     bell,
     notify,
+    imagePreview: config.imagePreview ?? true,
     jsonMode: modeFlags.json,
     quietMode: modeFlags.quiet,
     plainMode: modeFlags.plain,

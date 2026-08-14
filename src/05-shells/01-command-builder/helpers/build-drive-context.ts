@@ -8,6 +8,7 @@
  * inside `02-services/drive.ts`).
  */
 
+import { getOutput } from '#infra/ui-core/output.ts';
 import type { DriveContext } from '#pipeline/04-output/drive.ts';
 import { getAiClient } from '#services/client.ts';
 import { ensureRootFolder, ensureSubfolder, saveFileToDrive } from '#services/drive.ts';
@@ -41,7 +42,11 @@ export async function buildDriveContext(opts: {
           previewUrl: params.previewUrl,
         }),
     };
-  } catch {
+  } catch (err) {
+    // Non-fatal: the generation output must still be shown — but the user
+    // asked for --save-to-drive, so a silent no-op would look like data loss.
+    const msg = err instanceof Error ? err.message : String(err);
+    getOutput().warn(`Drive save unavailable (${msg}) — result will not be saved to Drive`);
     return undefined;
   }
 }

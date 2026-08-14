@@ -85,6 +85,8 @@ export interface OutputConfig {
   clipboard: boolean;
   bell: boolean;
   notify: boolean;
+  /** Inline terminal image preview. Absent = enabled (user-config opt-out). */
+  imagePreview?: boolean;
   jsonMode: boolean;
   quietMode: boolean;
   plainMode: boolean;

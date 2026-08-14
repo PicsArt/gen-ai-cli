@@ -22,6 +22,7 @@ import { generateFlagsFromCatalog } from '#param-surface';
 import { STATIC_FLAG_GROUPS, type StaticFlagSet } from '../../01-static/01-static-flags/index.ts';
 import { filterCatalog } from '../../01-static/03-catalog-filter/index.ts';
 import type { FlowSpec } from '../../02-registry/01-flow-spec/index.ts';
+import { sdkGapFlags } from './sdk-gap-flags.ts';
 
 /** Spreadable into an oclif command's `static flags = {...}`. */
 export type FlagSet = Record<string, unknown>;
@@ -40,9 +41,10 @@ export function composeFlagsForFlow(flow: FlowSpec, catalog: Catalog, models: re
     Object.assign(staticFlags, STATIC_FLAG_GROUPS[groupName]);
   }
 
-  // Descriptor flags first, then static. The cross-block collision test
-  // in `01-static-flags/static-flags.test.ts` guarantees no overlap on
-  // the fixture catalog; this merge order ensures static wins if a
-  // real-SDK collision ever slips through.
-  return { ...descriptorFlags, ...staticFlags };
+  // Descriptor flags first, then the SDK-gap overlay (fields buildPayload
+  // reads without a descriptor — see ./sdk-gap-flags.ts), then static.
+  // The cross-block collision test in `01-static-flags/static-flags.test.ts`
+  // guarantees no overlap on the fixture catalog; this merge order ensures
+  // static wins if a real-SDK collision ever slips through.
+  return { ...descriptorFlags, ...sdkGapFlags(allowedIds), ...staticFlags };
 }

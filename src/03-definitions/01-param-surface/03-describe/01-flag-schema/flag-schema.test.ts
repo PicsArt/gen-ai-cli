@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MODEL_BOOLEAN,
   MODEL_CATALOG,
+  MODEL_ENUM_EMPTY,
   MODEL_ENUM_NUMBER,
   MODEL_ENUM_STRING,
   MODEL_FILE,
@@ -344,6 +345,39 @@ describe('generateFlagsFromCatalog — alias resolution', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 /*  Real-SDK snapshot                                                     */
 /* ─────────────────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Kind-conflict surfaces parse leniently                                 */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('generateFlagsFromCatalog — kind-conflict surfaces', () => {
+  const ENUM_PRIMARY: ModelLike = {
+    id: 'fx-enum-primary',
+    paramConfig: {
+      duration: {
+        descriptor: { kind: 'enum', valueType: 'number', options: [{ id: 5 }, { id: 10 }], default: 5 },
+      },
+    },
+  };
+  const RANGE_SIBLING: ModelLike = {
+    id: 'fx-range-sibling',
+    paramConfig: {
+      duration: { descriptor: { kind: 'range', min: 3, max: 10, default: 5 } },
+    },
+  };
+
+  it('omits oclif options when models disagree on the kind, so parse cannot pre-reject', () => {
+    const flags = generateFlagsFromCatalog(loadCatalog([ENUM_PRIMARY, RANGE_SIBLING], ALIAS_MAP));
+    const shape = asShape(flags, 'duration');
+    expect(shape.options).toBeUndefined();
+  });
+
+  it('omits oclif options for a zero-option enum so the flag still accepts values', () => {
+    const flags = generateFlagsFromCatalog(loadCatalog([MODEL_ENUM_EMPTY], ALIAS_MAP));
+    const shape = asShape(flags, 'video-id');
+    expect(shape.options).toBeUndefined();
+  });
+});
 
 describe('generateFlagsFromCatalog — real SDK snapshot', () => {
   it('produces a stable flag set against the real catalog', async () => {

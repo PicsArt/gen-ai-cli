@@ -15,6 +15,7 @@
  *     - 'exit' / BACK / CANCEL all return without opening
  */
 import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '#infra/errors/api.ts';
 import { InsufficientCreditsError } from '#infra/errors/credits.ts';
 import { BACK, CANCEL } from '#pipeline/01-wizard-runner/wizard-state.ts';
 import type { CliDeps } from '#root/deps.ts';
@@ -59,6 +60,14 @@ describe('isCreditsError', () => {
 
   it('returns true for "insufficient credit" wording', () => {
     expect(isCreditsError(new Error('insufficient credits for this operation'))).toBe(true);
+  });
+
+  it('returns true for ApiError with statusCode 402 even when the message lacks "credit"', () => {
+    expect(isCreditsError(new ApiError(402, 'payment required'))).toBe(true);
+  });
+
+  it('returns false for ApiError with other status codes', () => {
+    expect(isCreditsError(new ApiError(500, 'server exploded'))).toBe(false);
   });
 
   it('returns false for unrelated errors', () => {

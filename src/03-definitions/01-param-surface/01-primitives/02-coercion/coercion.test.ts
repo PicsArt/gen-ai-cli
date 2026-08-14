@@ -199,6 +199,11 @@ describe('coerceToDescriptor — enum<string>', () => {
   it('rejects non-string input with a UsageError', () => {
     expect(() => coerceToDescriptor(42, desc)).toThrow(UsageError);
   });
+
+  it('passes any string through when the options list is empty (dynamic platform catalogs)', () => {
+    const empty: EnumDescriptor<string> = { kind: 'enum', valueType: 'string', options: [], default: '' };
+    expect(coerceToDescriptor('vid_123', empty)).toBe('vid_123');
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -239,6 +244,12 @@ describe('coerceToDescriptor — enum<number>', () => {
     };
     expect(() => coerceToDescriptor('', withZero)).toThrow(UsageError);
     expect(() => coerceToDescriptor('   ', withZero)).toThrow(UsageError);
+  });
+
+  it('passes any number through when the options list is empty (dynamic platform catalogs)', () => {
+    const empty: EnumDescriptor<number> = { kind: 'enum', valueType: 'number', options: [], default: 0 };
+    expect(coerceToDescriptor('42', empty)).toBe(42);
+    expect(() => coerceToDescriptor('abc', empty)).toThrow(UsageError);
   });
 });
 
@@ -492,8 +503,11 @@ describe('subfieldFlagName — naming rules', () => {
 /*  autoNumberIndexField — positional 1..N backfill                           */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-describe('autoNumberIndexField — 1-based positional indices', () => {
-  it('fills 1..N when every item has index=0 (descriptor default)', () => {
+describe('autoNumberIndexField — consecutive positional indices', () => {
+  // The "did the caller supply indices?" decision lives in the flag/wizard
+  // readers (they know whether the --*-index flag was passed). This function
+  // renumbers unconditionally, starting at the descriptor's declared minimum.
+  it('fills 1..N by default (legacy 1-based vendors)', () => {
     const items = [
       { index: 0, prompt: 'a' },
       { index: 0, prompt: 'b' },
@@ -503,29 +517,16 @@ describe('autoNumberIndexField — 1-based positional indices', () => {
     expect(out.map((i) => i.index)).toEqual([1, 2, 3]);
   });
 
-  it('fills 1..N when items have no index field at all', () => {
+  it('fills start..start+N-1 from an explicit start (0-based Kling multiPrompt)', () => {
+    const items: Record<string, unknown>[] = [{ prompt: 'a' }, { prompt: 'b' }, { prompt: 'c' }];
+    const out = autoNumberIndexField(items, 0);
+    expect(out.map((i) => i.index)).toEqual([0, 1, 2]);
+  });
+
+  it('fills when items have no index field at all', () => {
     const items: Record<string, unknown>[] = [{ prompt: 'a' }, { prompt: 'b' }];
     const out = autoNumberIndexField(items);
     expect(out.map((i) => i.index)).toEqual([1, 2]);
-  });
-
-  it('preserves caller-supplied non-zero indices verbatim', () => {
-    const items = [
-      { index: 2, prompt: 'a' },
-      { index: 4, prompt: 'b' },
-    ];
-    const out = autoNumberIndexField(items);
-    expect(out.map((i) => i.index)).toEqual([2, 4]);
-  });
-
-  it('preserves a mix when at least one index is non-zero (no rewriting)', () => {
-    const items = [
-      { index: 0, prompt: 'a' },
-      { index: 3, prompt: 'b' },
-      { index: 0, prompt: 'c' },
-    ];
-    const out = autoNumberIndexField(items);
-    expect(out.map((i) => i.index)).toEqual([0, 3, 0]);
   });
 
   it('handles the empty array safely', () => {

@@ -49,6 +49,7 @@ describe('describeObjectFlags — single-field objects', () => {
   it('the emitted flag is multi (repeatable)', () => {
     const s = surface('element', {
       kind: 'object',
+      array: { max: 8 },
       fields: { element_id: { kind: 'text' } },
     });
     const flags = describeObjectFlags(s) as Record<string, { multiple: boolean }>;
@@ -121,9 +122,10 @@ describe('describeObjectFlags — multi-field objects', () => {
     ]);
   });
 
-  it('every emitted flag is multi (repeatable)', () => {
+  it('every emitted flag is multi (repeatable) when the descriptor declares an array', () => {
     const s = surface('shot', {
       kind: 'object',
+      array: { max: 6 },
       fields: {
         prompt: { kind: 'text' },
         duration: { kind: 'text' },
@@ -131,6 +133,29 @@ describe('describeObjectFlags — multi-field objects', () => {
     });
     const flags = describeObjectFlags(s) as Record<string, { multiple: boolean }>;
     for (const f of Object.values(flags)) expect(f.multiple).toBe(true);
+  });
+
+  it('non-array descriptors (array undefined) emit NON-repeatable flags — the param is one bare object', () => {
+    const s = surface('lora-weights', {
+      kind: 'object',
+      fields: {
+        lora_angle: { kind: 'range', min: 0, max: 1, default: 1 },
+        lora_angle_lighting: { kind: 'range', min: 0, max: 1, default: 1 },
+      },
+    });
+    const flags = describeObjectFlags(s) as Record<string, { multiple?: boolean }>;
+    expect(Object.keys(flags).sort()).toEqual(['lora-weights-lora-angle', 'lora-weights-lora-angle-lighting']);
+    for (const f of Object.values(flags)) expect(f.multiple).not.toBe(true);
+  });
+
+  it('single-field non-array object emits one NON-repeatable flag', () => {
+    const s = surface('voice', {
+      kind: 'object',
+      fields: { voice_id: { kind: 'text' } },
+    });
+    const flags = describeObjectFlags(s) as Record<string, { multiple?: boolean }>;
+    expect(Object.keys(flags)).toEqual(['voice']);
+    expect(flags.voice.multiple).not.toBe(true);
   });
 
   it('each subfield flag carries a "<parent> — <subfield>" description', () => {

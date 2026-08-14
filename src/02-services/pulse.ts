@@ -31,7 +31,7 @@ import type { PulseClient } from '@pulse/server';
 import { createClient } from '@pulse/server';
 import { getLocaleInfo } from '#infra/utils/locale.ts';
 import { getSessionId } from '#infra/utils/session-id.ts';
-import { loadCredentials } from './auth.ts';
+import { getEnvCredentials, loadCredentials } from './auth.ts';
 import { getDeviceId } from './device-id.ts';
 
 /**
@@ -126,7 +126,9 @@ export function getInitialPulseState(): Record<string, unknown> {
   }
 
   try {
-    const creds = loadCredentials();
+    // Same precedence as getToken: env credentials (CI mode) win over the
+    // file — env-authenticated runs must not ship events without a user_id.
+    const creds = getEnvCredentials() ?? loadCredentials();
     if (creds?.uid) {
       state.user_id = creds.uid;
     }

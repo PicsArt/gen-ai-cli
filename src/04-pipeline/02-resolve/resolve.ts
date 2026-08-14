@@ -19,7 +19,12 @@ import { getAuthenticatedFetch } from '#services/client.ts';
 import { resolveAllFiles } from '#services/file-upload.ts';
 import { resolveScripted } from './scripted/resolver.ts';
 import { finalizeTextAnalysisInputs } from './text-analysis.ts';
-import { deriveTopLevelPromptFromMulti, validateFileSlotLimits, validateMultiShot } from './types.ts';
+import {
+  configDefaultModelId,
+  deriveTopLevelPromptFromMulti,
+  validateFileSlotLimits,
+  validateMultiShot,
+} from './types.ts';
 
 // Re-exported for the scripted resolver's tests and for callers that have
 // always reached for it here; the implementation lives in `types.ts` so the
@@ -51,7 +56,8 @@ export async function resolveInputs(
   // Auto-scripted: when the user provided everything on the command line
   // (model + prompt + every required file), skip the interactive wizard
   // and the confirm step entirely. They asked us to run; just run.
-  const useScripted = !isInteractiveMode(deps.flags) || flagsFullySpecifyInputs(flow, normalized);
+  const useScripted =
+    !isInteractiveMode(deps.flags) || flagsFullySpecifyInputs(flow, normalized, deps.config?.defaultModel);
 
   let inputs = useScripted
     ? await resolveScripted(flow, normalized, deps)
@@ -98,8 +104,16 @@ export async function resolveInputs(
  * interactive wizard so an explicit one-shot command runs without a confirm
  * step. Returns false on any missing piece; the wizard will fill the gaps.
  */
-export function flagsFullySpecifyInputs(flow: FlowSpec, flags: Record<string, unknown>): boolean {
-  const modelFlag = (flags.model as string | undefined) ?? flow.defaultModel;
+export function flagsFullySpecifyInputs(
+  flow: FlowSpec,
+  flags: Record<string, unknown>,
+  configDefaultModel?: string,
+): boolean {
+  // Same precedence as the scripted resolver: --model > valid user-config
+  // defaultModel > flow.defaultModel. Keeping the two in sync matters — this
+  // routing check decides whether the scripted resolver runs at all.
+  const modelFlag =
+    (flags.model as string | undefined) ?? configDefaultModelId(flow, configDefaultModel) ?? flow.defaultModel;
   if (!modelFlag) return false;
 
   const model = findModel(modelFlag);

@@ -70,20 +70,42 @@ function readOne(answers: Record<string, unknown>, surface: ParamSurface): unkno
 /*  Object descriptors                                                    */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-function readObjectArray(raw: unknown, surface: ParamSurface): unknown[] | undefined {
+function readObjectArray(raw: unknown, surface: ParamSurface): unknown {
+  const desc = surface.descriptor as ObjectDescriptor;
+
+  // Non-array object (SDK convention: `array` undefined = ONE bare object,
+  // e.g. loraWeights). Accept a single record and pass it through as `{...}`.
+  if (desc.array === undefined) {
+    if (Array.isArray(raw)) {
+      throw new UsageError(`Expected a single object for '${surface.key}', got an array.`);
+    }
+    return readItem(raw, desc, surface.key, 0);
+  }
+
   if (!Array.isArray(raw)) {
     throw new UsageError(`Expected an array for '${surface.key}', got ${describe(raw)}.`);
   }
   if (raw.length === 0) return undefined;
 
-  const desc = surface.descriptor as ObjectDescriptor;
   enforceMax(surface.key, desc.array?.max, raw.length);
+
+  // Whether the ANSWERS carried explicit index values — checked on the raw
+  // items, before default-backfill makes provided and defaulted look alike.
+  const explicitIndex = raw.some(
+    (item) => item !== null && typeof item === 'object' && (item as Record<string, unknown>).index !== undefined,
+  );
 
   const items = raw.map((item, index) => readItem(item, desc, surface.key, index));
   // Same positional `index` backfill as the flag reader — keeps wizard and
-  // scripted paths producing identical payloads for vendors that require
-  // 1-based consecutive indices (Kling V3 multi-shot, omni-image-list).
-  return 'index' in desc.fields ? autoNumberIndexField(items) : items;
+  // scripted paths producing identical payloads. Numbering starts at the
+  // descriptor's declared minimum (Kling multiPrompt: 0..5 for 6 shots);
+  // explicit answers, even zeros, are the caller's intent and stay verbatim.
+  if ('index' in desc.fields && !explicitIndex) {
+    const idxDesc = desc.fields.index;
+    const start = idxDesc.kind === 'range' ? idxDesc.min : 1;
+    return autoNumberIndexField(items, start);
+  }
+  return items;
 }
 
 function readItem(item: unknown, desc: ObjectDescriptor, parentKey: string, index: number): Record<string, unknown> {
