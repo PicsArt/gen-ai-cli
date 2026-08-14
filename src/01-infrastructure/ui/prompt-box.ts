@@ -5,7 +5,7 @@
  */
 import { StringDecoder } from 'node:string_decoder';
 import { getColor } from '../ui-core/color.ts';
-import { tailWindow, visibleWidth } from '../ui-core/components/string-utils.ts';
+import { tailWindow, truncate, visibleWidth } from '../ui-core/components/string-utils.ts';
 
 export interface PromptBoxOptions {
   modelId: string;
@@ -96,8 +96,13 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       process.stderr.write('\r\x1B[J');
 
       const promptChar = `${color.brand('\u276F')}  `;
-      const dimPrefix = color.dim(prefix);
-      const prefixVis = 4 + visibleWidth(prefix);
+      // Elide an over-long prefix (long model ids) so line 0 can never exceed
+      // ruleWidth and hard-wrap \u2014 a wrapped row breaks the one-row-per-line
+      // cursor math. Keep at least 8 columns for the typed text.
+      const maxPrefixVis = Math.max(0, ruleWidth - 4 - 8);
+      const shownPrefix = visibleWidth(prefix) > maxPrefixVis ? truncate(prefix, maxPrefixVis) : prefix;
+      const dimPrefix = color.dim(shownPrefix);
+      const prefixVis = 4 + visibleWidth(shownPrefix);
       const textLines = userText.split('\n');
 
       // Display-width-aware tail truncation for over-long lines; remember
@@ -196,6 +201,10 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
     // the old box and redraws at the new width.
     function onResize(): void {
       if (cleaned) return;
+      // A pending warning flash left the real cursor below the warning line
+      // while prevCursorLine says 0 — erase it first (as onData does) so
+      // render()'s cursor math starts from a known position.
+      if (warningTimer) clearWarning();
       ruleWidth = computeRuleWidth(process.stdout.columns || 80);
       rule = color.brand(HORIZONTAL.repeat(ruleWidth));
       render();

@@ -55,6 +55,13 @@ describe('createColorManager — enabled helpers', () => {
     expect(c.strip(linked)).toBe('label');
   });
 
+  it('link() strips control bytes from untrusted url and text', () => {
+    const c = createColorManager({ enabled: true });
+    const linked = c.link('la\x07bel', 'https://x.com/\x1b\x9bevil');
+    expect(linked).toContain(']8;;https://x.com/evil\x07');
+    expect(c.strip(linked)).toBe('label');
+  });
+
   it('hex() produces a color wrapper that strip() can undo', () => {
     const c = createColorManager({ enabled: true });
     const colored = c.hex('#E859B4')('brand');

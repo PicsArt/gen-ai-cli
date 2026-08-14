@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getMaxWidth,
   graphemeWidth,
+  sanitizeTerminalText,
   stringWidth,
   stripAnsi,
   tailWindow,
@@ -184,5 +185,43 @@ describe('getMaxWidth', () => {
   it('falls back to terminal columns or 80', () => {
     const result = getMaxWidth();
     expect(result).toBe(process.stdout.columns || 80);
+  });
+});
+
+describe('sanitizeTerminalText', () => {
+  it('returns strings without control bytes unchanged', () => {
+    expect(sanitizeTerminalText('plain text')).toBe('plain text');
+    expect(sanitizeTerminalText('multi\nline')).toBe('multi\nline');
+  });
+
+  it('strips raw BEL, CR, DEL, and C1 control bytes', () => {
+    expect(sanitizeTerminalText('a\x07b\rc\x7fd\x9be')).toBe('abcde');
+  });
+
+  it('defangs escape sequences that are not SGR or OSC 8', () => {
+    // Cursor moves / screen clears lose their ESC byte and become visible text
+    expect(sanitizeTerminalText('a\x1b[2Jb')).toBe('a[2Jb');
+    // Window-title spoofing (OSC 0) loses ESC and BEL
+    expect(sanitizeTerminalText('a\x1b]0;spoof\x07b')).toBe('a]0;spoofb');
+    // OSC 52 clipboard write
+    expect(sanitizeTerminalText('\x1b]52;c;ZXZpbA==\x07')).toBe(']52;c;ZXZpbA==');
+  });
+
+  it('preserves SGR color sequences', () => {
+    const styled = '\x1b[31mred\x1b[0m and \x1b[1mbold\x1b[0m';
+    expect(sanitizeTerminalText(styled)).toBe(styled);
+  });
+
+  it('preserves OSC 8 hyperlinks', () => {
+    const linked = '\x1b]8;;https://example.com\x07label\x1b]8;;\x07';
+    expect(sanitizeTerminalText(linked)).toBe(linked);
+  });
+
+  it('strips smuggled controls between preserved sequences', () => {
+    expect(sanitizeTerminalText('\x1b[31m\x07x\x1b[0m')).toBe('\x1b[31mx\x1b[0m');
+  });
+
+  it('converts tabs to spaces and keeps newlines', () => {
+    expect(sanitizeTerminalText('a\tb\nc\x07')).toBe('a b\nc');
   });
 });

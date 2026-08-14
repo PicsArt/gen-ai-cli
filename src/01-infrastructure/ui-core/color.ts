@@ -50,6 +50,16 @@ function noopColor(text: string): string {
   return text;
 }
 
+// Both OSC 8 payload slots are interpolated into a raw escape sequence, so an
+// embedded BEL/ESC in an untrusted URL (drive metadata, provider responses)
+// would terminate the sequence early and inject arbitrary terminal escapes.
+// eslint-disable-next-line no-control-regex
+const OSC_UNSAFE_RE = /[\0-\x1f\x7f-\x9f]/g;
+
+function sanitizeOscField(value: string): string {
+  return value.replace(OSC_UNSAFE_RE, '');
+}
+
 function createDisabledManager(): ColorManager {
   return {
     enabled: false,
@@ -107,7 +117,7 @@ function createEnabledManager(): ColorManager {
     info: (t) => c.hex(COLOR_INFO)(t),
     hex: (color) => (t) => c.hex(color)(t),
     strip: stripAnsi,
-    link: (text, url) => `\u001B]8;;${url}\u0007${text}\u001B]8;;\u0007`,
+    link: (text, url) => `\u001B]8;;${sanitizeOscField(url)}\u0007${sanitizeOscField(text)}\u001B]8;;\u0007`,
   };
 }
 

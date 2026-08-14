@@ -316,6 +316,20 @@ describe('promptWithCommandBox rendering', () => {
     await promise;
   });
 
+  it('elides an over-long model-id prefix instead of overflowing the rule', async () => {
+    const longId = 'very-long-provider/extremely-long-model-name-v2.5-ultra-max';
+    const promise = promptWithCommandBox({ modelId: longId, modelName: 'X' });
+    press('hi');
+    // Default 80-col terminal → ruleWidth 76; the full prefix would be
+    // 83 columns and hard-wrap line 0, breaking the cursor math.
+    const row = term.rows.find((r) => r.includes('❯'));
+    expect(row).toBeDefined();
+    expect(row?.includes('…')).toBe(true);
+    expect((row ?? '').trimEnd().length).toBeLessThanOrEqual(76);
+    press('\x03');
+    await promise;
+  });
+
   it('recovers cleanly after the empty-submit warning', async () => {
     const promise = start();
     press('\r'); // empty → warning replaces the input row
@@ -390,6 +404,25 @@ describe('promptWithCommandBox resize', () => {
     press(' world', '\r');
     await expect(promise).resolves.toBe('hello world');
     expect(process.stdout.listenerCount('resize')).toBe(before);
+  });
+
+  it('a resize during the empty-submit warning erases the warning before redrawing', async () => {
+    const term = new VirtualTerminal();
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      term.write(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    const promise = start();
+    press('\r'); // empty submit → warning flash
+    expect(term.rows.some((r) => r.includes('prompt cannot be empty'))).toBe(true);
+
+    Object.defineProperty(process.stdout, 'columns', { value: 60, configurable: true });
+    process.stdout.emit('resize');
+    expect(term.rows.some((r) => r.includes('prompt cannot be empty'))).toBe(false);
+
+    press('ok', '\r');
+    await expect(promise).resolves.toBe('ok');
   });
 
   it('redraws the box at the new width after a resize', async () => {

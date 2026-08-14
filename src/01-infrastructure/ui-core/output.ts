@@ -2,7 +2,7 @@ import type { ColorManager } from './color.ts';
 import { getColor } from './color.ts';
 import { renderCard } from './components/card.ts';
 import { renderDivider } from './components/divider.ts';
-import { visibleWidth } from './components/string-utils.ts';
+import { sanitizeTerminalText, visibleWidth } from './components/string-utils.ts';
 import { renderTable } from './components/table.ts';
 
 export interface OutputManagerOptions {
@@ -42,6 +42,18 @@ function writeStderr(text: string): void {
 function createOutputManagerImpl(opts: OutputManagerOptions): OutputManager {
   const { color, quiet, debug: debugMode, plainMode } = opts;
 
+  // Untrusted strings (model names, drive metadata, provider messages) flow
+  // into every decorated writer — scrub raw control bytes while keeping the
+  // SGR/OSC 8 sequences the renderers themselves emit. result()/json() stay
+  // raw: they are the machine-readable data contract.
+  const clean = sanitizeTerminalText;
+
+  // Decorated stdout output (tables, kv pairs) must not leak ANSI into a
+  // redirected stdout — the color manager can stay enabled for stderr's TTY.
+  function writeStdoutDecorated(text: string): void {
+    writeStdout(process.stdout.isTTY ? text : color.strip(text));
+  }
+
   return {
     result(data: string): void {
       writeStdout(data);
@@ -50,44 +62,46 @@ function createOutputManagerImpl(opts: OutputManagerOptions): OutputManager {
     info(msg: string): void {
       if (quiet) return;
       const prefix = color.blue('i');
-      writeStderr(`${prefix} ${msg}`);
+      writeStderr(`${prefix} ${clean(msg)}`);
     },
 
     success(msg: string): void {
       if (quiet) return;
       const prefix = color.green('✓');
-      writeStderr(`${prefix} ${msg}`);
+      writeStderr(`${prefix} ${clean(msg)}`);
     },
 
     error(msg: string): void {
       const prefix = color.red('✗');
-      writeStderr(`${prefix} ${msg}`);
+      writeStderr(`${prefix} ${clean(msg)}`);
     },
 
     debug(msg: string): void {
       if (!debugMode) return;
       const prefix = color.magenta('d');
-      writeStderr(`${prefix} ${msg}`);
+      writeStderr(`${prefix} ${clean(msg)}`);
     },
 
     warn(msg: string): void {
       if (quiet) return;
       const prefix = color.yellow('!');
-      writeStderr(`${prefix} ${msg}`);
+      writeStderr(`${prefix} ${clean(msg)}`);
     },
 
     json(data: unknown): void {
       writeStdout(JSON.stringify(data, null, 2));
     },
 
-    table(rows: string[][], headers?: string[]): void {
+    table(rawRows: string[][], rawHeaders?: string[]): void {
+      const rows = rawRows.map((row) => row.map(clean));
+      const headers = rawHeaders?.map(clean);
       if (plainMode) {
-        // Tab-separated in plain mode
+        // Tab-separated in plain mode (cell tabs became spaces in clean())
         if (headers && headers.length > 0) {
-          writeStdout(headers.join('\t'));
+          writeStdoutDecorated(headers.join('\t'));
         }
         for (const row of rows) {
-          writeStdout(row.join('\t'));
+          writeStdoutDecorated(row.join('\t'));
         }
         return;
       }
@@ -116,35 +130,38 @@ function createOutputManagerImpl(opts: OutputManagerOptions): OutputManager {
 
       if (headers && headers.length > 0) {
         const boldHeaders = headers.map((h) => color.bold(h));
-        writeStdout(formatRow(boldHeaders));
+        writeStdoutDecorated(formatRow(boldHeaders));
         // Separator line
         const sep = colWidths.map((w) => '-'.repeat(w)).join('  ');
-        writeStdout(sep);
+        writeStdoutDecorated(sep);
       }
 
       for (const row of rows) {
-        writeStdout(formatRow(row));
+        writeStdoutDecorated(formatRow(row));
       }
     },
 
     kvPairs(pairs: [string, string][]): void {
-      const keyWidth = pairs.reduce((max, [k]) => Math.max(max, visibleWidth(k)), 0);
+      const cleaned = pairs.map(([k, v]) => [clean(k), clean(v)] as [string, string]);
+      const keyWidth = cleaned.reduce((max, [k]) => Math.max(max, visibleWidth(k)), 0);
 
-      for (const [key, value] of pairs) {
+      for (const [key, value] of cleaned) {
         const paddedKey = color.bold(key) + ' '.repeat(keyWidth - visibleWidth(key));
-        writeStdout(`${paddedKey}  ${value}`);
+        writeStdoutDecorated(`${paddedKey}  ${value}`);
       }
     },
 
     card(lines: string[], opts?: { title?: string; borderColor?: string }): void {
-      writeStderr(renderCard(lines, { color, plain: plainMode, ...opts }));
+      const safeOpts = opts?.title != null ? { ...opts, title: clean(opts.title) } : opts;
+      writeStderr(renderCard(lines.map(clean), { color, plain: plainMode, ...safeOpts }));
     },
 
     richTable(
       rows: Record<string, string>[],
       opts: { columns: { key: string; label?: string; align?: 'left' | 'right' | 'center' }[]; borderColor?: string },
     ): void {
-      writeStdout(renderTable(rows, { ...opts, color, plain: plainMode }));
+      const safeRows = rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, clean(v)])));
+      writeStdoutDecorated(renderTable(safeRows, { ...opts, color, plain: plainMode }));
     },
 
     divider(opts?: { label?: string }): void {

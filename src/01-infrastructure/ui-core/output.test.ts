@@ -198,3 +198,102 @@ describe('isQuietMode', () => {
     expect(fresh.isQuietMode()).toBe(false);
   });
 });
+
+describe('createOutputManager — piped stdout keeps data clean', () => {
+  function withStdoutTty(isTTY: boolean, fn: () => void): void {
+    const saved = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { value: isTTY, configurable: true });
+    try {
+      fn();
+    } finally {
+      if (saved) Object.defineProperty(process.stdout, 'isTTY', saved);
+      else Reflect.deleteProperty(process.stdout, 'isTTY');
+    }
+  }
+
+  const enabledColor = createColorManager({ enabled: true });
+
+  it('strips ANSI from table output when stdout is not a TTY', () => {
+    const out = createOutputManager({
+      color: enabledColor,
+      quiet: false,
+      debug: false,
+      jsonMode: false,
+      plainMode: false,
+    });
+    withStdoutTty(false, () => {
+      const { stdout } = captureStreams(() => out.table([['a', 'b']], ['H1', 'H2']));
+      expect(stdout).not.toContain('\x1b[');
+      expect(stdout).toContain('H1');
+    });
+  });
+
+  it('keeps ANSI in table output when stdout is a TTY', () => {
+    const out = createOutputManager({
+      color: enabledColor,
+      quiet: false,
+      debug: false,
+      jsonMode: false,
+      plainMode: false,
+    });
+    withStdoutTty(true, () => {
+      const { stdout } = captureStreams(() => out.table([['a', 'b']], ['H1', 'H2']));
+      expect(stdout).toContain('\x1b[');
+    });
+  });
+
+  it('strips ANSI from kvPairs and richTable when stdout is piped', () => {
+    const out = createOutputManager({
+      color: enabledColor,
+      quiet: false,
+      debug: false,
+      jsonMode: false,
+      plainMode: false,
+    });
+    withStdoutTty(false, () => {
+      const kv = captureStreams(() => out.kvPairs([['Key', 'Value']]));
+      expect(kv.stdout).not.toContain('\x1b[');
+      const rt = captureStreams(() => out.richTable([{ a: 'x' }], { columns: [{ key: 'a' }] }));
+      expect(rt.stdout).not.toContain('\x1b[');
+    });
+  });
+
+  it('result() passes data through raw even when stdout is piped', () => {
+    const out = createOutputManager({
+      color: enabledColor,
+      quiet: false,
+      debug: false,
+      jsonMode: false,
+      plainMode: false,
+    });
+    const data = 'raw \x1b[31mdata\x1b[0m';
+    withStdoutTty(false, () => {
+      const { stdout } = captureStreams(() => out.result(data));
+      expect(stdout).toContain(data);
+    });
+  });
+});
+
+describe('createOutputManager — untrusted-string scrubbing', () => {
+  const out = () => createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false });
+
+  it('scrubs raw control bytes from info()/error() messages', () => {
+    const { stderr } = captureStreams(() => out().info('name\x1b]0;spoof\x07end'));
+    expect(stderr).not.toContain('\x1b]');
+    expect(stderr).not.toContain('\x07');
+    expect(stderr).toContain('end');
+  });
+
+  it('scrubs control bytes from card titles and lines', () => {
+    const { stderr } = captureStreams(() => out().card(['line\x1b[2Jtext'], { title: 'T\x9bK' }));
+    expect(stderr).not.toContain('\x1b[2J');
+    expect(stderr).not.toContain('\x9b');
+    expect(stderr).toContain('TK');
+  });
+
+  it('scrubs control bytes from table cells', () => {
+    const { stdout } = captureStreams(() => out().table([['a\x07b']], ['H']));
+    expect(stdout).not.toContain('\x07');
+    expect(stdout).toContain('ab');
+  });
+});
