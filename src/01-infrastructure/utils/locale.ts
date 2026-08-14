@@ -22,7 +22,9 @@ function fromIntl(): string | undefined {
 }
 
 function fromEnv(): string | undefined {
-  const lang = process.env.LC_ALL ?? process.env.LANG ?? process.env.LANGUAGE;
+  // `||`, not `??`: an empty LC_ALL (a common way to "unset" it) must fall
+  // through to LANG/LANGUAGE per POSIX precedence.
+  const lang = process.env.LC_ALL || process.env.LANG || process.env.LANGUAGE;
   if (!lang) return undefined;
   // e.g. "en_US.UTF-8" → "US"; "fr_FR" → "FR"
   const match = lang.match(/[_-]([A-Z]{2})(?:[._@]|$)/);
