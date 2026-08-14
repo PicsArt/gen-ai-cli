@@ -15,7 +15,8 @@ For each `ParamSurface` in catalog order, picks the right step kind based on the
 | `enum<number>` | `{ kind: 'select', choices: [{id,label}], default? }` — numeric ids preserved |
 | `range` | `{ kind: 'number', min, max, default? }` |
 | `boolean` | `{ kind: 'confirm', default? }` |
-| `file` | **skipped** (file pipeline owns these) |
+| `catalog` | `{ kind: 'catalog', source, default? }` — free-string id; `source` names the platform catalog task a runner can query for live options |
+| `file` | `{ kind: 'file', accept, multi, arrayMax? }` — emitted so a runner knows a file input exists; the file pipeline owns resolution |
 | `object` | `{ kind: 'object', fields: WizardStep[], arrayMax? }` — recursive |
 
 ## Required flag
@@ -27,7 +28,7 @@ The `required` flag carries different meaning at different levels — but the ru
 
 ## Order
 
-Steps appear in `catalog.all()` order with file descriptors filtered out. wizard-schema bakes in no UX opinions about ordering (e.g. "prompt first, seed last"). Reordering, inserting non-descriptor steps (model picker, output config, preview), and conditional branching are all jobs for a downstream composition / runner block. Keeping wizard-schema pure means a new SDK param appears in the wizard automatically and in a stable place.
+Steps appear in `catalog.all()` order (file steps included — the runner routes them to the file pipeline). wizard-schema bakes in no UX opinions about ordering (e.g. "prompt first, seed last"). Reordering, inserting non-descriptor steps (model picker, output config, preview), and conditional branching are all jobs for a downstream composition / runner block. Keeping wizard-schema pure means a new SDK param appears in the wizard automatically and in a stable place.
 
 ## Composition (out of scope for this sub-part)
 

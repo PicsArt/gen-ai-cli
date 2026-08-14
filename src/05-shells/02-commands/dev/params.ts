@@ -19,27 +19,12 @@ import {
   ALIAS_MAP,
   type AuditReport,
   auditCatalog,
+  EXPECTED_SDK_GAPS,
   findFileWiringGaps,
   loadCatalog,
   readResolverSources,
 } from '#param-surface';
 import { BaseCommand } from '#root/base-command.ts';
-
-/**
- * Alias keys allowed in `ALIAS_MAP` without a backing SDK descriptor.
- * Each is an open gap in `@picsart/ai-sdk`, filed against the
- * `pa-gen-ai-sdk` repo that owns the catalog.
- */
-const EXPECTED_ORPHANS: ReadonlySet<string> = new Set([
-  'externalTaskId',
-  // 'outputFormat' removed 2026-05-25 — now a real SDK descriptor (p.outputFormat
-  // on GPT Image), so it is no longer an orphan alias.
-  // 'model' removed 2026-07-29 — now a real SDK descriptor (Topaz enhance
-  // engine, Flux 3 Video quality tier); ships as --model-version via ALIAS_MAP.
-  'soundEffectPrompt',
-  'bgmPrompt',
-  'asmrMode',
-]);
 
 export default class DevParams extends BaseCommand {
   static summary = 'Audit the CLI parameter surface against the SDK catalog';
@@ -68,7 +53,7 @@ items are present.`;
 
     const catalog = loadCatalog(Models.list(), ALIAS_MAP);
     const fileWiringGaps = findFileWiringGaps(catalog, readResolverSources());
-    const report = auditCatalog(catalog, new Set(Object.keys(ALIAS_MAP)), EXPECTED_ORPHANS, {
+    const report = auditCatalog(catalog, new Set(Object.keys(ALIAS_MAP)), EXPECTED_SDK_GAPS, {
       longFlagThreshold: flags['long-flag-threshold'],
       fileWiringGaps,
     });
@@ -131,7 +116,11 @@ items are present.`;
       this.out.info(
         `\n${r.closedGaps.length} exempt orphan${r.closedGaps.length === 1 ? '' : 's'} no longer needed — SDK now declares these`,
       );
-      this.out.info(color.dim('Remove these from EXPECTED_ORPHANS in src/05-shells/02-commands/dev/params.ts.'));
+      this.out.info(
+        color.dim(
+          'Remove these from EXPECTED_SDK_GAPS in src/03-definitions/01-param-surface/01-primitives/01-aliases/aliases.ts.',
+        ),
+      );
       for (const key of r.closedGaps)
         this.out.info(`  ${key} ${color.dim('→')} ${color.success('now in SDK catalog')}`);
     }

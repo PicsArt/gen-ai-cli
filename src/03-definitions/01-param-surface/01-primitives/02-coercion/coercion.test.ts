@@ -478,6 +478,11 @@ describe('subfieldFlagName — naming rules', () => {
     expect(subfieldFlagName('voice-list', 'voice_id')).toBe('voice-list-voice-id');
   });
 
+  it('splits acronym runs in subkeys, matching camelToKebab (imageURL → image-url)', () => {
+    expect(subfieldFlagName('scene', 'imageURL')).toBe('scene-image-url');
+    expect(subfieldFlagName('scene', 'imageURLList')).toBe('scene-image-url-list');
+  });
+
   it('throws on empty subkey (programming error, not user input)', () => {
     expect(() => subfieldFlagName('foo', '')).toThrow();
   });

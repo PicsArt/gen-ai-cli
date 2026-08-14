@@ -108,3 +108,22 @@ export const ALIAS_MAP: AliasMap = {
   // from the 23-char default --remove-background-noise.
   removeBackgroundNoise: { flag: 'remove-bg-noise' },
 };
+
+/**
+ * ALIAS_MAP keys intentionally NOT present in the SDK catalog. Each is a
+ * known SDK gap: the SDK's `buildPayload` reads `ctx.<key>` but no model's
+ * paramConfig declares `<key>` as a descriptor. The CLI ships the flag for
+ * scripted users; wizard support is blocked until the SDK adds the
+ * descriptor. Gaps are filed against the `pa-gen-ai-sdk` repo, which owns
+ * the catalog.
+ *
+ * Single source of truth — consumed by the catalog real-SDK test and the
+ * `gen-ai dev:params` drift gate. When the SDK closes a gap, both fail
+ * until the entry is removed here.
+ */
+export const EXPECTED_SDK_GAPS: ReadonlySet<string> = new Set([
+  'externalTaskId', // SDK gap (Kling video tracking)
+  'soundEffectPrompt', // SDK gap (Kling V2A)
+  'bgmPrompt', // SDK gap (Kling V2A)
+  'asmrMode', // SDK gap (Kling V2A)
+]);

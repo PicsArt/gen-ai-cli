@@ -68,7 +68,7 @@ export function subfieldFlagName(parentFlag: string, subKey: string): string {
 
 function snakeOrCamelToKebab(s: string): string {
   if (s === '') throw new Error('snakeOrCamelToKebab: empty string');
-  return s.replace(/_+/g, '-').replace(CAMEL_BOUNDARY, '$1-$2').toLowerCase();
+  return s.replace(/_+/g, '-').replace(ACRONYM_BOUNDARY, '$1-$2').replace(CAMEL_BOUNDARY, '$1-$2').toLowerCase();
 }
 
 /**

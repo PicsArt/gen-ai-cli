@@ -189,13 +189,13 @@ describe('generateWizardStepsFromCatalog — required flag', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('generateWizardStepsFromCatalog — labels', () => {
-  it('uses the first non-empty per-model label as the wizard prompt label', () => {
+  it('uses the single agreed per-model label as the wizard prompt label', () => {
     // MODEL_TEXT carries label 'Prompt'
     const cat = loadCatalog([MODEL_TEXT], ALIAS_MAP);
     expect(stepByKey(generateWizardStepsFromCatalog(cat), 'prompt').label).toBe('Prompt');
   });
 
-  it('falls back to the camelCase key when no model supplied a label', () => {
+  it('falls back to a humanized flag name when no model supplied a label', () => {
     const unlabeled: ModelLike = {
       id: 'fx-unlabeled',
       paramConfig: {
@@ -203,7 +203,25 @@ describe('generateWizardStepsFromCatalog — labels', () => {
       },
     };
     const cat = loadCatalog([unlabeled], ALIAS_MAP);
-    expect(stepByKey(generateWizardStepsFromCatalog(cat), 'somethingFancy').label).toBe('somethingFancy');
+    expect(stepByKey(generateWizardStepsFromCatalog(cat), 'somethingFancy').label).toBe('Something Fancy');
+  });
+
+  it('collapses to a neutral flag-derived label when models disagree (parity with flag-schema)', () => {
+    // Same rule the flag help uses: no single model's wording is correct
+    // on a shared surface, so don't let walk order pick the label.
+    const veoLike: ModelLike = {
+      id: 'fx-veo',
+      paramConfig: { imageUrls: { label: 'Reference Images', descriptor: { kind: 'file', accept: 'image' } } },
+    };
+    const klingLike: ModelLike = {
+      id: 'fx-kling',
+      paramConfig: {
+        imageUrls: { label: 'Person Photo (upper body)', descriptor: { kind: 'file', accept: 'image' } },
+      },
+    };
+    const cat = loadCatalog([veoLike, klingLike], ALIAS_MAP);
+    // imageUrls ships as --image via ALIAS_MAP → neutral label "Image".
+    expect(stepByKey(generateWizardStepsFromCatalog(cat), 'imageUrls').label).toBe('Image');
   });
 });
 

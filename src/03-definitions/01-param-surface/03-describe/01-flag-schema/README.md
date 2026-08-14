@@ -17,7 +17,8 @@ Walks every `ParamSurface` in the catalog. For each one, picks the right oclif f
 | `boolean` | `Flags.boolean({ allowNo: true })` | `--foo` / `--no-foo` both accepted |
 | `range` | `Flags.string()` | flag-reader parses + checks bounds |
 | `text` | `Flags.string()` | flag-reader enforces `maxLength`/`minLength` |
-| `file` | **skipped** | file pipeline owns these (`--image`, `--video`, etc.) |
+| `catalog` | `Flags.string()` | free-string id; the live platform catalog validates membership |
+| `file` | `Flags.string()` path flag (declaration only) | the resolver's file pipeline uploads and substitutes; flag-reader still skips these |
 | `object` | delegated to `./objects.ts` (`describeObjectFlags`) | per-subfield repeatable flags |
 
 ### Why some kinds defer parsing to the flag-reader

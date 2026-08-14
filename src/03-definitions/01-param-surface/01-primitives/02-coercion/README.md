@@ -26,6 +26,7 @@ Given a raw value (typically a string from a CLI flag) and an SDK descriptor, re
 | `boolean` | boolean or `'true'`/`'false'` | boolean | anything else |
 | `range` | string or number | number | not numeric, or out of `[min, max]` |
 | `text` | string | string | not a string, too short, or too long |
+| `catalog` | string | string | not a string, or empty — membership is never checked (the live platform catalog is the source of truth) |
 | `file` | — | — | always — file values are handled by the file pipeline |
 | `object` | — | — | always — object-array values are handled by Block 4 |
 
