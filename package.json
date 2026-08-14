@@ -34,7 +34,7 @@
     "@inquirer/search": "^4.1.6",
     "@inquirer/select": "^5.1.2",
     "@oclif/core": "^4.10.3",
-    "@picsart/ai-sdk": "3.26.0",
+    "@picsart/ai-sdk": "^5.0.0",
     "chalk": "^5.0.0",
     "cli-progress": "^3.12.0",
     "fflate": "^0.8.2",
