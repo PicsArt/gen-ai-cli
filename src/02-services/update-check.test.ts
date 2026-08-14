@@ -129,4 +129,19 @@ describe('printUpdateNotice', () => {
     const output = await captureStderr(printUpdateNotice);
     expect(output).toBe('');
   });
+
+  it('honors --quiet: no notice when the OutputManager runs quiet', async () => {
+    const { createColorManager } = await import('#infra/ui-core/color.ts');
+    const { createOutputManager } = await import('#infra/ui-core/output.ts');
+    const color = createColorManager({ enabled: false });
+    createOutputManager({ color, quiet: true, debug: false, jsonMode: false, plainMode: false });
+    try {
+      writeCache('2.0.0');
+      startUpdateCheck('1.0.0');
+      const output = await captureStderr(printUpdateNotice);
+      expect(output).toBe('');
+    } finally {
+      createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false });
+    }
+  });
 });

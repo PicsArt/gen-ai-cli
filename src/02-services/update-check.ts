@@ -5,17 +5,19 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import chalk from 'chalk';
+import { getColor } from '#infra/ui-core/color.ts';
+import { isQuietMode } from '#infra/ui-core/output.ts';
 import { ensureDataDir, getDataDir } from '#infra/utils/data-dir.ts';
 import { getUserConfig } from '#services/user-config.ts';
-import { detectInstallMode, isRunningFromSource, performUpdate } from './self-update.ts';
+import { detectInstallMode, isNewer, isRunningFromSource, performUpdate } from './self-update.ts';
 
 // Write directly to stderr — printUpdateNotice runs after `await execute(...)`
 // returns, but for built-in oclif paths (`--help`, `--version`, unknown
 // command) no BaseCommand was instantiated, so OutputManager is uninitialised.
-// Using process.stderr keeps the notice independent of that lifecycle.
+// getColor() self-initializes, so this still honors --no-color,
+// GEN_AI_NO_COLOR, NO_COLOR, and TERM=dumb (raw chalk only honored NO_COLOR).
 function emit(line: string): void {
-  process.stderr.write(`${chalk.cyan('i')} ${line}\n`);
+  process.stderr.write(`${getColor().info('i')} ${line}\n`);
 }
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org/@picsart/gen-ai/latest';
@@ -65,15 +67,6 @@ function writeCache(latestVersion: string): void {
   } catch {
     // Silently ignore write failures
   }
-}
-
-function isNewer(latest: string, current: string): boolean {
-  const parse = (v: string) => v.split('-')[0].split('.').map(Number);
-  const [lMaj, lMin, lPat] = parse(latest);
-  const [cMaj, cMin, cPat] = parse(current);
-  if (lMaj !== cMaj) return lMaj > cMaj;
-  if (lMin !== cMin) return lMin > cMin;
-  return lPat > cPat;
 }
 
 async function fetchLatestVersion(): Promise<string | null> {
@@ -150,6 +143,8 @@ export function getAvailableUpdate(): string | null {
  */
 export async function printUpdateNotice(opts?: { allowAutoUpdate?: boolean }): Promise<void> {
   if (!_checkPromise) return;
+  // Honor --quiet: the notice is non-essential output.
+  if (isQuietMode()) return;
 
   // Clear the race timer once settled — a dangling timeout holds the event
   // loop open and delays natural process exit by up to NOTICE_TIMEOUT_MS.
@@ -168,22 +163,23 @@ export async function printUpdateNotice(opts?: { allowAutoUpdate?: boolean }): P
   if (!isNewer(latest, _currentVersion)) return;
 
   const config = getUserConfig();
+  const color = getColor();
   // Dev clone: never attempt a global `npm install -g` — there's no global
   // install to upgrade. Just emit the notice; the user can pull / rebuild.
   const canAutoUpdate = opts?.allowAutoUpdate && config.autoUpdate && !isRunningFromSource();
   if (canAutoUpdate) {
-    emit(`Auto-updating: ${chalk.dim(_currentVersion)} \u2192 ${chalk.green(latest)}`);
+    emit(`Auto-updating: ${color.dim(_currentVersion)} \u2192 ${color.success(latest)}`);
     const result = await performUpdate({ currentVersion: _currentVersion });
     if (result.updated) {
-      emit(chalk.green(`\u2713 ${result.message}. Restart your terminal to use the new version.`));
+      emit(color.success(`\u2713 ${result.message}. Restart your terminal to use the new version.`));
     } else {
-      emit(chalk.yellow(`Auto-update failed: ${result.message}`));
+      emit(color.warning(`Auto-update failed: ${result.message}`));
     }
     return;
   }
 
   const hint = isRunningFromSource()
-    ? chalk.dim('(dev clone — pull and rebuild to update)')
-    : `  Run: ${chalk.cyan('gen-ai update')}`;
-  emit(`Update available: ${chalk.dim(_currentVersion)} \u2192 ${chalk.green(latest)}${hint ? `  ${hint}` : ''}`);
+    ? color.dim('(dev clone — pull and rebuild to update)')
+    : `  Run: ${color.info('gen-ai update')}`;
+  emit(`Update available: ${color.dim(_currentVersion)} \u2192 ${color.success(latest)}${hint ? `  ${hint}` : ''}`);
 }

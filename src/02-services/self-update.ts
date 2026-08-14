@@ -75,7 +75,8 @@ function detectPlatform(): string | null {
   return null;
 }
 
-function isNewer(latest: string, current: string): boolean {
+/** Semver-ish comparison; pre-release suffixes are ignored. Shared with update-check. */
+export function isNewer(latest: string, current: string): boolean {
   const parse = (v: string) => v.split('-')[0].split('.').map(Number);
   const [lMaj, lMin, lPat] = parse(latest);
   const [cMaj, cMin, cPat] = parse(current);

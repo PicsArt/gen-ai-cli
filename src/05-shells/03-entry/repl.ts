@@ -12,6 +12,7 @@ import { showCardHelp } from '#infra/ui/custom-help.ts';
 import { getColor } from '#infra/ui-core/color.ts';
 import { renderCard } from '#infra/ui-core/components/card.ts';
 import { getOutput } from '#infra/ui-core/output.ts';
+import { COMMANDS } from '#root/commands-manifest.ts';
 import { printUpdateNotice } from '#services/update-check.ts';
 import { getValidCommands, renderOperationMenu } from './menu.ts';
 import type { Operation } from './menu-registry.ts';
@@ -208,7 +209,7 @@ export async function startRepl(version: string): Promise<void> {
     // Intercept "<command> --help" for card-based help
     if (resolved.endsWith(' --help') || resolved.endsWith(' -h')) {
       const helpCmd = resolved.replace(/\s+--help$|\s+-h$/, '');
-      if (showCardHelp(helpCmd)) continue;
+      if (showCardHelp(helpCmd, COMMANDS)) continue;
     }
 
     const parts = splitArgs(resolved);
