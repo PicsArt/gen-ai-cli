@@ -376,9 +376,29 @@ async function performNpmUpdate(currentVersion: string, force: boolean): Promise
 
 /* ── Public entry point ──────────────────────────────────────── */
 
-export async function performUpdate(opts?: { force?: boolean; currentVersion?: string }): Promise<UpdateResult> {
+export async function performUpdate(opts?: {
+  force?: boolean;
+  currentVersion?: string;
+  /** Override source-tree detection (tests run from a real dev clone). */
+  fromSource?: boolean;
+}): Promise<UpdateResult> {
   const currentVersion = opts?.currentVersion ?? CLI_VERSION;
   const force = opts?.force ?? false;
+
+  // Dev clone: there is no install to update — `npm install -g` would create
+  // or overwrite a GLOBAL install the developer isn't running (CLI_VERSION is
+  // 0.0.0-dev here, so the "already up to date" exit never fires either).
+  // The auto-update path already suppresses this; the explicit `gen-ai update`
+  // command must refuse too.
+  if (opts?.fromSource ?? isRunningFromSource()) {
+    return {
+      updated: false,
+      oldVersion: currentVersion,
+      newVersion: currentVersion,
+      message: 'Running from a dev clone — pull and rebuild to update. Refusing to touch the global npm install.',
+    };
+  }
+
   const mode = detectInstallMode();
 
   if (mode === 'binary') {

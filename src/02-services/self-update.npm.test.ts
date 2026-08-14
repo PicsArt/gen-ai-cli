@@ -55,7 +55,7 @@ describe('performUpdate — npm mode, platform-correct npm invocation', () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('EACCES');
     });
-    await performUpdate({ currentVersion: '1.0.0' });
+    await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(execFileSyncMock).toHaveBeenCalled();
     const [cmd, , opts] = execFileSyncMock.mock.calls[0];
     expect(cmd).toBe('npm');
@@ -67,7 +67,7 @@ describe('performUpdate — npm mode, platform-correct npm invocation', () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('EACCES');
     });
-    await performUpdate({ currentVersion: '1.0.0' });
+    await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     const [, , opts] = execFileSyncMock.mock.calls[0];
     expect((opts as { shell?: boolean }).shell).toBe(false);
   });
@@ -77,7 +77,7 @@ describe('performUpdate — npm mode, platform-correct npm invocation', () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('EACCES');
     });
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/administrator/i);
     expect(result.message).not.toMatch(/sudo/);
@@ -88,7 +88,7 @@ describe('performUpdate — npm mode, platform-correct npm invocation', () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('EACCES');
     });
-    const result = await performUpdate({ currentVersion: '1.0.0' });
+    const result = await performUpdate({ currentVersion: '1.0.0', fromSource: false });
     expect(result.updated).toBe(false);
     expect(result.message).toMatch(/sudo npm install/);
   });
