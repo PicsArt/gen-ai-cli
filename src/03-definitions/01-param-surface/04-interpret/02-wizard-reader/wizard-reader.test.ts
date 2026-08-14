@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { UsageError } from '#infra/errors/usage.ts';
 import {
   MODEL_BOOLEAN,
+  MODEL_CATALOG,
   MODEL_ENUM_NUMBER,
   MODEL_ENUM_STRING,
   MODEL_FILE,
@@ -92,6 +93,16 @@ describe('collectContextFromAnswers — kind table', () => {
   it('file descriptors are not read into ctx (file pipeline owns these)', () => {
     const cat = loadCatalog([MODEL_FILE], ALIAS_MAP);
     expect(collectContextFromAnswers({ imageUrls: 'will-be-ignored' }, cat)).toEqual({});
+  });
+
+  it('catalog answer (free-string id) passes through under the SDK key', () => {
+    const cat = loadCatalog([MODEL_CATALOG], ALIAS_MAP);
+    expect(collectContextFromAnswers({ voiceId: 'vx_123' }, cat)).toEqual({ voiceId: 'vx_123' });
+  });
+
+  it('catalog answer of a non-string type throws UsageError', () => {
+    const cat = loadCatalog([MODEL_CATALOG], ALIAS_MAP);
+    expect(() => collectContextFromAnswers({ voiceId: 42 }, cat)).toThrow(UsageError);
   });
 });
 
@@ -217,6 +228,18 @@ describe('collectContextFromAnswers — noise', () => {
     const cat = loadCatalog([MODEL_TEXT], ALIAS_MAP);
     const ctx = collectContextFromAnswers({ prompt: 'hi', __runnerMeta: 'whatever', _step: 3 }, cat);
     expect(ctx).toEqual({ prompt: 'hi' });
+  });
+
+  it("ignores composer-owned '$'-prefixed keys ($model from the wizard model picker)", () => {
+    // The wizard composer keys its model picker as '$model' so it can
+    // never collide with the real SDK `model` descriptor key. The reader
+    // must leave it to the runner, even when a `model` surface exists.
+    const withModelKey = loadCatalog(
+      [{ id: 'm', paramConfig: { model: { descriptor: { kind: 'text' } } } } as ModelLike],
+      ALIAS_MAP,
+    );
+    const ctx = collectContextFromAnswers({ $model: 'kling-v3', model: 'High Fidelity V2' }, withModelKey);
+    expect(ctx).toEqual({ model: 'High Fidelity V2' });
   });
 });
 

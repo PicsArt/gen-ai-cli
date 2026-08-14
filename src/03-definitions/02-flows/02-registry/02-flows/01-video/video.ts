@@ -8,18 +8,18 @@
  * SDK adds appears here automatically — the predicate is the contract,
  * not a hardcoded model id list.
  */
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
 export const VIDEO_FLOW = defineFlow({
   id: 'video',
   description: 'Generate a video from a text prompt',
-  modelFilter: (m) => m.inputType === 't2v' && m.disabled !== true,
+  modelFilter: (m) => m.inputType === 't2v' && modelAvailable(m),
   staticFlagGroups: ['universal', 'output', 'model', 'prompt-input', 'directory-input'],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: ['prompt'],
   examples: [
     'gen-ai video -p "a serene sunset over the ocean"',
-    'gen-ai video -m kling-v2-master -p "a bustling city skyline at night"',
+    'gen-ai video -m kling-v3 -p "a bustling city skyline at night"',
   ],
 });
 

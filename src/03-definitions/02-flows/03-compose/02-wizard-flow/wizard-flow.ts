@@ -18,6 +18,13 @@
  * Final order:
  *   [ model-picker, ...descriptor steps, ...static-group steps in spec order ]
  *
+ * Key namespace: composer-owned steps use a `$`-prefixed key (`$model`)
+ * so they can never collide with an SDK descriptor key — SDK keys are
+ * camelCase identifiers, and a real `model` descriptor exists (the Topaz
+ * enhance engine / Flux quality tier, shipped as --model-version).
+ * `wizard-reader` only reads catalog keys, so `$`-keys pass through it
+ * untouched; the runner owns their interpretation.
+ *
  * Pure function. Caller injects all deps.
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
@@ -38,8 +45,9 @@ export function composeWizardForFlow(
   const steps: WizardStep[] = [];
 
   // 1) Model picker first — the user must choose a model before the
-  //    per-param steps make sense. Only emit when there's a real choice
-  //    to make (>1 model). With one model, the runner can pre-fill.
+  //    per-param steps make sense. Emitted whenever ≥1 model matches;
+  //    with exactly one model its id is pre-filled as the default so a
+  //    runner can skip or confirm it.
   const picker = buildModelPickerStep(matching, flow.defaultModel);
   if (picker !== undefined) steps.push(picker);
 
@@ -71,7 +79,7 @@ function buildModelPickerStep(
 
   const step: WizardStep = {
     kind: 'select',
-    key: 'model',
+    key: '$model',
     label: 'Model',
     required: true,
     choices,

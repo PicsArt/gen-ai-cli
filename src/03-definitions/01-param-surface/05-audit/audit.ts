@@ -63,7 +63,15 @@ export interface AuditReport {
    * passed in via options. Empty when the caller didn't run the check.
    */
   readonly fileWiringGaps: readonly FileWiringGap[];
-  /** True when the catalog has at least one drift item (CI gate). */
+  /**
+   * True when the catalog has at least one item the CLI side must act on
+   * (CI gate): an unexpected orphan alias, a closed gap whose exemption
+   * is stale, or an unwired file slot. Kind `conflicts` are deliberately
+   * NOT included — they originate in the SDK's model definitions (e.g.
+   * `duration` is a range on one model and an enum on another), are
+   * handled by the permissive merge, and the CLI cannot fix them; they
+   * are reported for visibility only.
+   */
   readonly hasActionItems: boolean;
 }
 

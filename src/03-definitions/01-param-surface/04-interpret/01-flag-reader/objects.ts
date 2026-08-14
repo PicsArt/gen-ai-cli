@@ -37,7 +37,7 @@ function interpretSingleField(
   const raw = flags[surface.flag];
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
 
-  enforceMax(surface.flag, desc.array?.max, raw.length);
+  enforceMax(`--${surface.flag}`, desc.array?.max, raw.length);
 
   const subDesc = desc.fields[subKey];
   return raw.map((v) => ({ [subKey]: coerceToDescriptor(v, subDesc) }));
@@ -60,7 +60,7 @@ function interpretMultiField(
 
   // Item count = MAX length across all provided subfield arrays.
   const itemCount = Math.max(...[...subArrays.values()].map((a) => a.length));
-  enforceMax(surface.flag, desc.array?.max, itemCount);
+  enforceMax(`--${surface.flag}-*`, desc.array?.max, itemCount);
 
   const items: Array<Record<string, unknown>> = [];
   for (let i = 0; i < itemCount; i++) {
@@ -100,6 +100,7 @@ function descriptorDefault(desc: ParamDescriptor): unknown {
   switch (desc.kind) {
     case 'enum':
     case 'boolean':
+    case 'catalog':
       return desc.default;
     case 'range':
       return desc.default; // may be undefined for fields like seed
@@ -117,8 +118,9 @@ function assertObject(surface: ParamSurface): ObjectDescriptor {
   return surface.descriptor;
 }
 
-function enforceMax(flag: string, max: number | undefined, count: number): void {
+/** `flagLabel` arrives fully rendered: `--voice` (single-field) or `--shot-*` (multi-field family). */
+function enforceMax(flagLabel: string, max: number | undefined, count: number): void {
   if (max !== undefined && count > max) {
-    throw new UsageError(`--${flag}-* accepts at most ${max} items, got ${count}.`);
+    throw new UsageError(`${flagLabel} accepts at most ${max} items, got ${count}.`);
   }
 }

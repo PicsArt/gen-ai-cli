@@ -4,12 +4,12 @@
  * Covers lyria, minimax-music, and similar music models.
  * Discriminator: `model.inputType === 'music'`.
  */
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
 export const MUSIC_FLOW = defineFlow({
   id: 'music',
   description: 'Generate music from a text prompt',
-  modelFilter: (m) => m.inputType === 'music' && m.disabled !== true,
+  modelFilter: (m) => m.inputType === 'music' && modelAvailable(m),
   staticFlagGroups: ['universal', 'output', 'model', 'prompt-input', 'directory-input'],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: ['prompt'],

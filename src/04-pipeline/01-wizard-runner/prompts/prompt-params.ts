@@ -139,6 +139,18 @@ function buildRunnerStep(s: SchemaStep): WizardStep | undefined {
         },
       };
 
+    case 'catalog':
+      // Free-string id served by a platform catalog task (voiceId, videoId).
+      // Ask as text; blank falls back to the descriptor default.
+      return {
+        id: s.key,
+        run: async () => {
+          const hint = s.default !== undefined ? ` (default ${s.default})` : '';
+          const val = await askWithNav(`${s.label}${hint}`);
+          return val || s.default;
+        },
+      };
+
     case 'number':
       return { id: s.key, run: () => askNumeric(s.label, s.min, s.max, s.default) };
 

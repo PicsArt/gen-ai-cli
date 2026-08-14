@@ -5,12 +5,12 @@
  * kling-motion-control, and similar v2v models. Discriminator:
  * `model.inputType === 'v2v'`.
  */
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
 export const VIDEO_EDIT_FLOW = defineFlow({
   id: 'video-edit',
   description: 'Edit, restyle, or transform an existing video',
-  modelFilter: (m) => m.inputType === 'v2v' && m.disabled !== true,
+  modelFilter: (m) => m.inputType === 'v2v' && modelAvailable(m),
   staticFlagGroups: ['universal', 'output', 'model', 'prompt-input', 'directory-input'],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: ['video', 'prompt'],

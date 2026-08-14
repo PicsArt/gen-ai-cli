@@ -14,12 +14,12 @@
  * enforced in `finalizeTextAnalysisInputs` (resolver), which also
  * defaults the prompt when none is given.
  */
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
 export const DESCRIBE_FLOW = defineFlow({
   id: 'describe',
   description: 'Analyze an image or video with an LLM',
-  modelFilter: (m) => m.mode === 'text' && m.disabled !== true,
+  modelFilter: (m) => m.mode === 'text' && modelAvailable(m),
   staticFlagGroups: ['universal', 'output', 'model', 'prompt-input', 'directory-input'],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: [],

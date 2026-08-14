@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MODEL_BOOLEAN,
+  MODEL_CATALOG,
   MODEL_ENUM_NUMBER,
   MODEL_ENUM_STRING,
   MODEL_FILE,
@@ -171,6 +172,27 @@ describe('generateFlagsFromCatalog — text', () => {
   it('char from ALIAS_MAP applies (prompt → -p)', () => {
     const shape = asShape(flags, 'prompt');
     expect(shape.char).toBe('p');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  catalog — free-string id flag (SDK 5: voiceId, videoId)                */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('generateFlagsFromCatalog — catalog', () => {
+  const cat = loadCatalog([MODEL_CATALOG], ALIAS_MAP);
+  const flags = generateFlagsFromCatalog(cat);
+
+  it('emits a string flag under the aliased name (--voice)', () => {
+    expect(flags.voice).toBeDefined();
+    const shape = asShape(flags, 'voice');
+    expect(shape.options).toBeUndefined();
+    expect(shape.allowNo).toBeUndefined();
+  });
+
+  it('long alias --ve from ALIAS_MAP applies', () => {
+    const shape = asShape(flags, 'voice');
+    expect(shape.aliases).toContain('ve');
   });
 });
 

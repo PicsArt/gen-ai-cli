@@ -17,6 +17,7 @@ function surface(flag: string, descriptor: ObjectDescriptor): ParamSurface {
     models: [],
     requiredInModels: [],
     perModelLabels: new Map(),
+    descriptorsByModel: new Map(),
     conflicts: [],
   };
 }
@@ -30,6 +31,7 @@ function nonObjectSurface(): ParamSurface {
     models: [],
     requiredInModels: [],
     perModelLabels: new Map(),
+    descriptorsByModel: new Map(),
     conflicts: [],
   };
 }
@@ -51,6 +53,32 @@ describe('describeObjectFlags — single-field objects', () => {
     });
     const flags = describeObjectFlags(s) as Record<string, { multiple: boolean }>;
     expect(flags.element.multiple).toBe(true);
+  });
+
+  it('carries a description so the flag is not blank in --help', () => {
+    const s = {
+      ...surface('voice', { kind: 'object' as const, fields: { voice_id: { kind: 'text' as const } } }),
+      perModelLabels: new Map([['m1', 'Voice List']]),
+    };
+    const flags = describeObjectFlags(s) as Record<string, { description?: string }>;
+    expect(flags.voice.description).toBe('Voice List');
+  });
+
+  it('falls back to a humanized flag name when no model supplied a label', () => {
+    const s = surface('voice-list', { kind: 'object', fields: { voice_id: { kind: 'text' } } });
+    const flags = describeObjectFlags(s) as Record<string, { description?: string }>;
+    expect(flags['voice-list'].description).toBe('Voice List');
+  });
+
+  it('applies char and long aliases from the surface to the single-field flag', () => {
+    const s = {
+      ...surface('voice', { kind: 'object' as const, fields: { voice_id: { kind: 'text' as const } } }),
+      char: 'V',
+      flagAliases: ['vc'] as readonly string[],
+    };
+    const flags = describeObjectFlags(s) as Record<string, { char?: string; aliases?: string[] }>;
+    expect(flags.voice.char).toBe('V');
+    expect(flags.voice.aliases).toEqual(['vc']);
   });
 });
 
@@ -103,6 +131,19 @@ describe('describeObjectFlags — multi-field objects', () => {
     });
     const flags = describeObjectFlags(s) as Record<string, { multiple: boolean }>;
     for (const f of Object.values(flags)) expect(f.multiple).toBe(true);
+  });
+
+  it('each subfield flag carries a "<parent> — <subfield>" description', () => {
+    const s = {
+      ...surface('shot', {
+        kind: 'object' as const,
+        fields: { prompt: { kind: 'text' as const }, duration: { kind: 'text' as const } },
+      }),
+      perModelLabels: new Map([['m1', 'Multi-shot Prompts']]),
+    };
+    const flags = describeObjectFlags(s) as Record<string, { description?: string }>;
+    expect(flags['shot-prompt'].description).toBe('Multi-shot Prompts — Prompt');
+    expect(flags['shot-duration'].description).toBe('Multi-shot Prompts — Duration');
   });
 });
 

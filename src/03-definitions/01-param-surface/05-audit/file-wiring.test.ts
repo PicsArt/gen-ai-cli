@@ -72,6 +72,30 @@ describe('findFileWiringGaps — missing wiring', () => {
     expect(gaps[0].validateMiss).toBe(true);
   });
 
+  it('does NOT treat a wired plural slot as covering the singular (files.videos vs files.video)', () => {
+    // Substring matching would pass `files.video` because `files.videos`
+    // contains it — leaving the auditor permanently blind to a missing
+    // singular slot. The needle must respect the identifier boundary.
+    const singleVideo: ModelLike = {
+      id: 'fx-single-video',
+      paramConfig: {
+        videoUrl: { descriptor: { kind: 'file', accept: 'video' } },
+      },
+    };
+    const catalog = makeCatalog([singleVideo]);
+    // Sources wire ONLY the plural slot.
+    const pluralOnly = 'files.videos\nfiles.audios';
+    const gaps = findFileWiringGaps(catalog, { resolver: pluralOnly, execute: pluralOnly, validate: pluralOnly });
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({
+      sdkKey: 'videoUrl',
+      filesKey: 'video',
+      resolverMiss: true,
+      executeMiss: true,
+      validateMiss: true,
+    });
+  });
+
   it('records the regression we shipped before this audit existed (videoUrls dropped from resolver)', () => {
     // Synthetic model with the same shape seedance-2.0-video-extend has —
     // descriptor exists, but resolver.ts has no `files.videos = …` line.

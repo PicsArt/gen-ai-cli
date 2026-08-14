@@ -57,6 +57,12 @@ export interface ParamSurface {
    * divergent ones are recorded in `conflicts`.
    */
   descriptor: ParamDescriptor;
+  /**
+   * Each declaring model's own (unmerged) descriptor. Lets a narrowed
+   * view (see Flows' `filterCatalog`) re-merge from a model subset so
+   * excluded models' enum options / kinds don't leak into a flow.
+   */
+  descriptorsByModel: ReadonlyMap<string, ParamDescriptor>;
   /** Every model id that declares this parameter, in insertion order. */
   models: readonly string[];
   /** Subset of `models` where the entry was marked required. */
@@ -128,14 +134,13 @@ export class ParamConflictError extends Error {
  * One bucket per unique SDK key. Promoted to a `ParamSurface` at the end.
  */
 interface Bucket {
-  descriptor: ParamDescriptor;
+  /** Each declaring model's own descriptor, in walk order. */
+  descriptorsByModel: Map<string, ParamDescriptor>;
   models: string[];
   requiredInModels: string[];
   perModelLabels: Map<string, string>;
   /** model-id → 'text' | 'range' | 'enum:string' | etc. Used to detect mismatches. */
   kindsByModel: Map<string, string>;
-  /** Models that disagreed on kind with the bucket's primary descriptor. */
-  conflicts: ParamSurfaceConflict[];
 }
 
 /** A short string that uniquely identifies a descriptor's shape. */
@@ -151,6 +156,8 @@ export function loadCatalog(
   const buckets = new Map<string, Bucket>();
 
   // ── Pass 1: walk every model's paramConfig and fill the buckets. ──
+  // Merging is deferred to `mergeDescriptors` in pass 2 so the exact
+  // same merge runs when Flows' `filterCatalog` narrows to a model subset.
   for (const model of models) {
     for (const [key, entry] of Object.entries(model.paramConfig)) {
       const desc = entry.descriptor;
@@ -160,62 +167,83 @@ export function loadCatalog(
       // First time we've seen this key — open a new bucket.
       if (!existing) {
         buckets.set(key, {
-          descriptor: desc,
+          descriptorsByModel: new Map([[model.id, desc]]),
           models: [model.id],
           requiredInModels: entry.required ? [model.id] : [],
           perModelLabels: entry.label !== undefined ? new Map([[model.id, entry.label]]) : new Map(),
           kindsByModel: new Map([[model.id, kind]]),
-          conflicts: [],
         });
         continue;
       }
 
       // Bucket exists. Record this model's contribution.
+      existing.descriptorsByModel.set(model.id, desc);
       existing.kindsByModel.set(model.id, kind);
       existing.models.push(model.id);
       if (entry.required) existing.requiredInModels.push(model.id);
       if (entry.label !== undefined) existing.perModelLabels.set(model.id, entry.label);
 
-      // Does this model's kind match the bucket's primary?
-      const primaryKind = kindOf(existing.descriptor);
-      if (kind !== primaryKind) {
-        if (options.strict) {
-          throw new ParamConflictError(key, existing.kindsByModel);
-        }
-        // Permissive: first-seen wins, record the divergence and move on.
-        existing.conflicts.push({ modelId: model.id, kind, descriptor: desc });
-        continue;
+      if (options.strict && kind !== kindOf(existing.descriptorsByModel.values().next().value as ParamDescriptor)) {
+        throw new ParamConflictError(key, existing.kindsByModel);
       }
-
-      // Same kind. If it's an enum, union the options.
-      if (desc.kind === 'enum' && existing.descriptor.kind === 'enum') {
-        existing.descriptor = unionEnumOptions(existing.descriptor, desc);
-      }
-      // For other kinds (text, range, boolean, file, object) the first
-      // descriptor stays as-is. We don't try to reconcile differing
-      // maxLength / min-max / step values across models.
     }
   }
 
   // ── Pass 2: turn each bucket into a ParamSurface and build the maps. ──
+  //
+  // Flag registration is two-phase so a collision can never silently
+  // overwrite an entry (SDK 5 landed a real `format` key next to the
+  // historic `outputFormat → --format` alias — the alias must yield):
+  //   Phase A: primary flags. Two keys resolving to the same primary flag
+  //            is a configuration error → throw.
+  //   Phase B: long-form aliases, in key-sorted order for determinism.
+  //            An alias that collides with any primary flag or an earlier
+  //            alias is DROPPED from the surface so oclif never sees it.
+  const sortedKeys = [...buckets.keys()].sort((a, b) => a.localeCompare(b));
+
+  const primaryFlagByKey = new Map<string, string>();
+  const flagHolder = new Map<string, string>(); // flag/alias name → owning key
+  for (const key of sortedKeys) {
+    const flag = aliases[key]?.flag ?? camelToKebab(key);
+    const holder = flagHolder.get(flag);
+    if (holder !== undefined) {
+      throw new Error(
+        `loadCatalog: keys '${holder}' and '${key}' both resolve to the primary flag '--${flag}'. ` +
+          'Adjust ALIAS_MAP so every key has a distinct flag name.',
+      );
+    }
+    flagHolder.set(flag, key);
+    primaryFlagByKey.set(key, flag);
+  }
+
   const bySdkKey = new Map<string, ParamSurface>();
   const byFlag = new Map<string, ParamSurface>();
 
-  for (const [key, bucket] of buckets) {
+  for (const key of sortedKeys) {
+    const bucket = buckets.get(key) as Bucket;
     const alias = aliases[key];
-    const flag = alias?.flag ?? camelToKebab(key);
-    const flagAliases = alias?.aliases ?? [];
+    const flag = primaryFlagByKey.get(key) as string;
+
+    const flagAliases: string[] = [];
+    for (const long of alias?.aliases ?? []) {
+      if (flagHolder.has(long)) continue; // taken by a primary flag or an earlier alias
+      flagHolder.set(long, key);
+      flagAliases.push(long);
+    }
+
+    const merged = mergeDescriptors(bucket.descriptorsByModel);
 
     const surface: ParamSurface = {
       key,
       flag,
       char: alias?.char,
       flagAliases,
-      descriptor: bucket.descriptor,
+      descriptor: merged.descriptor,
+      descriptorsByModel: bucket.descriptorsByModel,
       models: bucket.models,
       requiredInModels: bucket.requiredInModels,
       perModelLabels: bucket.perModelLabels,
-      conflicts: bucket.conflicts,
+      conflicts: merged.conflicts,
     };
 
     bySdkKey.set(key, surface);
@@ -229,6 +257,51 @@ export function loadCatalog(
     byFlag,
     all: () => sorted,
   };
+}
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Descriptor merge                                                      */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+export interface MergedDescriptor {
+  descriptor: ParamDescriptor;
+  conflicts: ParamSurfaceConflict[];
+}
+
+/**
+ * Merge one parameter's per-model descriptors into a single surface
+ * descriptor: first-seen kind wins, same-kind enums union their options,
+ * kind divergences are recorded as conflicts.
+ *
+ * The single source of truth for merge semantics — `loadCatalog` uses it
+ * for the universal view and Flows' `filterCatalog` re-runs it on a model
+ * subset so a narrowed catalog never leaks excluded models' options.
+ */
+export function mergeDescriptors(descriptorsByModel: ReadonlyMap<string, ParamDescriptor>): MergedDescriptor {
+  let primary: ParamDescriptor | undefined;
+  const conflicts: ParamSurfaceConflict[] = [];
+
+  for (const [modelId, desc] of descriptorsByModel) {
+    if (primary === undefined) {
+      primary = desc;
+      continue;
+    }
+    if (kindOf(desc) !== kindOf(primary)) {
+      conflicts.push({ modelId, kind: kindOf(desc), descriptor: desc });
+      continue;
+    }
+    if (desc.kind === 'enum' && primary.kind === 'enum') {
+      primary = unionEnumOptions(primary, desc);
+    }
+    // For other kinds (text, range, boolean, catalog, file, object) the
+    // first descriptor stays as-is. We don't try to reconcile differing
+    // maxLength / min-max / step values across models.
+  }
+
+  if (primary === undefined) {
+    throw new Error('mergeDescriptors: no descriptors to merge');
+  }
+  return { descriptor: primary, conflicts };
 }
 
 /* ─────────────────────────────────────────────────────────────────────── */

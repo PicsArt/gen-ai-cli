@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { UsageError } from '#infra/errors/usage.ts';
 import {
   MODEL_BOOLEAN,
+  MODEL_CATALOG,
   MODEL_ENUM_NUMBER,
   MODEL_ENUM_STRING,
   MODEL_FILE,
@@ -111,6 +112,19 @@ describe('collectGenerationContext — text', () => {
     // MODEL_TEXT has maxLength 2000; build a 2001-char string
     const tooLong = 'x'.repeat(2001);
     expect(() => collectGenerationContext({ prompt: tooLong }, cat)).toThrow(UsageError);
+  });
+});
+
+describe('collectGenerationContext — catalog', () => {
+  const cat = loadCatalog([MODEL_CATALOG], ALIAS_MAP);
+
+  it('reads the aliased flag (--voice) into the SDK key (voiceId)', () => {
+    const ctx = collectGenerationContext({ voice: 'vx_123' }, cat);
+    expect(ctx).toEqual({ voiceId: 'vx_123' });
+  });
+
+  it('non-string values throw UsageError (bubbled from Block 2)', () => {
+    expect(() => collectGenerationContext({ voice: 42 }, cat)).toThrow(UsageError);
   });
 });
 

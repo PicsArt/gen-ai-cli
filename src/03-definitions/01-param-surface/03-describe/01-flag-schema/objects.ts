@@ -22,8 +22,9 @@
  */
 import { Flags } from '@oclif/core';
 import type { ObjectDescriptor } from '@picsart/ai-sdk';
-import { subfieldFlagName } from '../../01-primitives/02-coercion/index.ts';
+import { humanizeKey, subfieldFlagName } from '../../01-primitives/02-coercion/index.ts';
 import type { ParamSurface } from '../../02-catalog/index.ts';
+import { aliasOpts, describeFlag } from './description.ts';
 
 export type ObjectFlagSet = Record<string, ReturnType<typeof Flags.string>>;
 
@@ -35,13 +36,22 @@ export function describeObjectFlags(surface: ParamSurface): ObjectFlagSet {
     throw new Error(`describeObjectFlags: object descriptor '${surface.key}' has no fields`);
   }
 
+  const label = describeFlag(surface);
+
   if (fieldKeys.length === 1) {
-    return { [surface.flag]: Flags.string({ multiple: true }) };
+    return {
+      [surface.flag]: Flags.string({ description: label, multiple: true, ...aliasOpts(surface) }),
+    };
   }
 
+  // Multi-field: one flag per subfield. char/aliases stay off — they name
+  // the parent, and there is no single parent flag to attach them to.
   const out: ObjectFlagSet = {};
   for (const subKey of fieldKeys) {
-    out[subfieldFlagName(surface.flag, subKey)] = Flags.string({ multiple: true });
+    out[subfieldFlagName(surface.flag, subKey)] = Flags.string({
+      description: `${label} — ${humanizeKey(subKey)}`,
+      multiple: true,
+    });
   }
   return out;
 }

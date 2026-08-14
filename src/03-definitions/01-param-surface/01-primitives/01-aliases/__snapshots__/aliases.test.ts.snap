@@ -75,11 +75,6 @@ exports[`ALIAS_MAP > matches snapshot 1`] = `
       "neg",
     ],
   },
-  "outputFormat": {
-    "aliases": [
-      "format",
-    ],
-  },
   "prompt": {
     "char": "p",
   },
@@ -102,11 +97,6 @@ exports[`ALIAS_MAP > matches snapshot 1`] = `
   "sourceImageId": {
     "aliases": [
       "source-id",
-    ],
-  },
-  "thinkingLevel": {
-    "aliases": [
-      "thinking",
     ],
   },
   "videoUrl": {

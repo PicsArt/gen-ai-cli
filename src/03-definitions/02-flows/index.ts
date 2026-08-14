@@ -1,15 +1,18 @@
 /**
  * Flows — public API.
  *
- * The ONLY way another block may import from Flows. Internal sub-parts
- * (static flags/steps, catalog filter, tool-id matcher) stay private to
+ * The ONLY way another block may import from Flows. Sub-parts NOT
+ * re-exported here (static steps, workflow matcher) stay private to
  * this block.
  *
  * Public surface:
- *   - FlowSpec / defineFlow / RequiredInput (type + helper)
- *   - FLOWS / FlowId                        (the registry)
- *   - composeFlagsForFlow                   (FlowSpec → oclif FlagSet)
- *   - composeWizardForFlow                  (FlowSpec → WizardStep[])
+ *   - STATIC_FLAG_GROUPS et al.              (static flag groups)
+ *   - filterCatalog                          (model-scoped catalog view —
+ *     also used by the layer-4 wizard runner)
+ *   - FlowSpec / defineFlow / modelAvailable / RequiredInput
+ *   - FLOWS / FlowId                         (the registry)
+ *   - composeFlagsForFlow                    (FlowSpec → oclif FlagSet)
+ *   - composeWizardForFlow                   (FlowSpec → WizardStep[])
  */
 export * from './01-static/01-static-flags/index.ts';
 export * from './01-static/03-catalog-filter/index.ts';
