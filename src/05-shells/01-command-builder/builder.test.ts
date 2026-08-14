@@ -313,6 +313,23 @@ describe('runOperation — error handling', () => {
     expect(spinnerInstance.stop).toHaveBeenCalled();
   });
 
+  it('sets process.exitCode = CREDITS_ERROR (7) when swallowing a credits error', async () => {
+    resetAll();
+    const prevExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      resolveInputsMock.mockResolvedValue(inputs);
+      executeMock.mockRejectedValue(new Error('insufficient credits'));
+      isCreditsErrorMock.mockReturnValue(true);
+
+      await runOperation(flow(), {}, deps());
+
+      expect(process.exitCode).toBe(7);
+    } finally {
+      process.exitCode = prevExitCode;
+    }
+  });
+
   it('rethrows non-credits errors and stops the spinner', async () => {
     resetAll();
     resolveInputsMock.mockResolvedValue(inputs);

@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createClientMock = vi.hoisted(() => vi.fn());
 const loadCredentialsMock = vi.hoisted(() => vi.fn());
+const getEnvCredentialsMock = vi.hoisted(() => vi.fn());
 const pulseFlushMock = vi.hoisted(() => vi.fn());
 const pulseSetMock = vi.hoisted(() => vi.fn());
 const getDeviceIdMock = vi.hoisted(() => vi.fn());
@@ -44,7 +45,10 @@ const getLocaleInfoMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@pulse/server', () => ({ createClient: createClientMock }));
 vi.mock('@pulse/core', () => ({ pulse: { flush: pulseFlushMock, set: pulseSetMock } }));
-vi.mock('./auth.ts', () => ({ loadCredentials: loadCredentialsMock }));
+vi.mock('./auth.ts', () => ({
+  loadCredentials: loadCredentialsMock,
+  getEnvCredentials: getEnvCredentialsMock,
+}));
 vi.mock('./device-id.ts', () => ({ getDeviceId: getDeviceIdMock }));
 vi.mock('#infra/utils/session-id.ts', () => ({ getSessionId: getSessionIdMock }));
 vi.mock('#infra/utils/locale.ts', () => ({ getLocaleInfo: getLocaleInfoMock }));
@@ -58,6 +62,7 @@ beforeEach(() => {
     }),
   });
   loadCredentialsMock.mockReset();
+  getEnvCredentialsMock.mockReset().mockReturnValue(null);
   pulseFlushMock.mockReset().mockResolvedValue(undefined);
   pulseSetMock.mockReset();
   getDeviceIdMock.mockReset().mockReturnValue('uuid-device-abc');
@@ -160,6 +165,20 @@ describe('getInitialPulseState', () => {
     expect(state.timezone).toBeUndefined();
     expect(state.locale_code).toBeUndefined();
     expect(state.app_device_id).toBe('uuid-device-abc');
+  });
+
+  it('uses env credentials for user_id when no credentials file exists (CI/env auth)', () => {
+    // Regression: env-authenticated runs used to ship events with no user_id
+    // because only loadCredentials() (the file) was consulted.
+    getEnvCredentialsMock.mockReturnValue({ uid: 'env-u', token: 'env-t', email: '' });
+    loadCredentialsMock.mockReturnValue(null);
+    expect(getInitialPulseState().user_id).toBe('env-u');
+  });
+
+  it('prefers env credentials over the file — same precedence as getToken', () => {
+    getEnvCredentialsMock.mockReturnValue({ uid: 'env-u', token: 'env-t', email: '' });
+    loadCredentialsMock.mockReturnValue({ uid: 'file-u', email: 'a@b' });
+    expect(getInitialPulseState().user_id).toBe('env-u');
   });
 
   it('still returns the rest of the state when loadCredentials throws', () => {

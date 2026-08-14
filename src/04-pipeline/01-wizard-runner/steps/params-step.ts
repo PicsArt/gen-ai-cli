@@ -22,8 +22,9 @@ export async function runParamsStep(
   flags: Record<string, unknown>,
   previousParams?: Record<string, unknown>,
 ): Promise<StepResult<Record<string, unknown>>> {
-  // Map kebab-case CLI flags to camelCase GenerationContext keys
-  const fromFlags = buildParamsFromFlags(flags);
+  // Map kebab-case CLI flags to camelCase GenerationContext keys, coercing
+  // against THIS model's own descriptors (not the cross-model merge).
+  const fromFlags = buildParamsFromFlags(flags, model.id);
 
   // Apply model defaults for keys not set by flags
   const defaults: Record<string, unknown> = {};

@@ -164,7 +164,9 @@ describe('getAiClient', () => {
     const client = await getAiClient();
     // Public API surface of the SDK client (smoke — actual SDK creates these).
     expect(typeof client.generate).toBe('function');
-    expect(typeof client.estimate).toBe('function');
+    // `estimate` exists at runtime but SDK 5.0.0 dropped it from AiClient's
+    // typed surface — assert through a cast until the SDK re-declares it.
+    expect(typeof (client as unknown as { estimate?: unknown }).estimate).toBe('function');
   });
 
   it('caches the client — repeated calls return the same instance without re-auth', async () => {

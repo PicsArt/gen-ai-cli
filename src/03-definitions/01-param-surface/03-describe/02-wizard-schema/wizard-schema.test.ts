@@ -135,6 +135,32 @@ describe('generateWizardStepsFromCatalog — object descriptors', () => {
     const step = stepByKey(generateWizardStepsFromCatalog(cat), 'multiPrompt');
     if (step.kind !== 'object') throw new Error(`expected object, got ${step.kind}`);
     expect(step.arrayMax).toBe(6);
+    expect(step.array).toBe(true);
+  });
+
+  it('marks non-array objects with array: false so runners collect ONE bare object', () => {
+    const lora = loadCatalog(
+      [
+        {
+          id: 'm-lora',
+          paramConfig: {
+            loraWeights: {
+              descriptor: {
+                kind: 'object',
+                fields: {
+                  lora_angle: { kind: 'range', min: 0, max: 1, default: 1 },
+                },
+              },
+            },
+          },
+        } as ModelLike,
+      ],
+      ALIAS_MAP,
+    );
+    const step = stepByKey(generateWizardStepsFromCatalog(lora), 'loraWeights');
+    if (step.kind !== 'object') throw new Error(`expected object, got ${step.kind}`);
+    expect(step.array).toBe(false);
+    expect(step.arrayMax).toBeUndefined();
   });
 
   it('subfield steps inherit the right kind from each subfield descriptor', () => {

@@ -3,7 +3,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { GenerationContext, TypedModelId } from '@picsart/ai-sdk';
+import type { GenerationContext, MediaModelId } from '@picsart/ai-sdk';
 import { createClient, findModel } from '@picsart/ai-sdk';
 import { getOutput } from '#infra/ui-core/output.ts';
 import { runPool } from '#infra/utils/pool.ts';
@@ -159,13 +159,13 @@ export async function runBatch(
 
       if (model.syncExecute) {
         // Sync models — use ai.generate() directly (fast, no progress needed)
-        const result = await ai.generate(model.id as TypedModelId, ctx as GenerationContext & { prompt: string });
+        const result = await ai.generate(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
         const durationMs = Date.now() - start;
         results.jobs.push({ id: job.id, model: job.model, status: 'completed', url: result.url, durationMs });
         out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);
       } else {
         // Async models — submit + subscribe for progress
-        const handle = await ai.submit(model.id as TypedModelId, ctx as GenerationContext & { prompt: string });
+        const handle = await ai.submit(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
         for await (const status of ai.subscribe(handle, { intervalMs: 3000 })) {
           const elapsed = ((Date.now() - start) / 1000).toFixed(0);
           if (status.progress?.percent != null) {
@@ -175,7 +175,7 @@ export async function runBatch(
           }
 
           if (status.status === 'COMPLETED') {
-            const result = await ai.result(handle, model.id as TypedModelId);
+            const result = await ai.result(handle, model.id as MediaModelId);
             const durationMs = Date.now() - start;
             results.jobs.push({ id: job.id, model: job.model, status: 'completed', url: result.url, durationMs });
             out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);

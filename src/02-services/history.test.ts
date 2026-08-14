@@ -114,6 +114,16 @@ describe('appendHistory — URL sanitization', () => {
     expect(saved.videoUrl).toBe('https://cdn.example.com/v.mp4');
     expect(saved.audioUrl).toBe('https://cdn.example.com/a.mp3');
   });
+
+  it('strips query strings from resultUrls (multi-result) entries too', () => {
+    // Regression: resultUrls used to be written raw, persisting pre-signed tokens.
+    appendHistory(
+      entry({
+        resultUrls: ['https://cdn.example.com/1.png?token=secret', 'https://cdn.example.com/2.png?token=secret'],
+      }),
+    );
+    expect(loadHistory()[0].resultUrls).toEqual(['https://cdn.example.com/1.png', 'https://cdn.example.com/2.png']);
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -204,6 +214,18 @@ describe('trackRecentFile + loadRecentFiles', () => {
   it('caps at default limit (20) when user config has no recentFilesCount', () => {
     for (let i = 0; i < 25; i++) trackRecentFile(`/tmp/f-${i}.png`, 'image');
     expect(loadRecentFiles().length).toBe(20);
+  });
+
+  it('writes atomically via tmp+rename — same pattern as appendHistory', () => {
+    // Regression: recent-files.json used to be written in place. A rename-based
+    // write goes through <file>.tmp, so it succeeds even when the destination
+    // file itself is read-only (rename needs only directory perms) — an
+    // in-place writeFileSync would throw EACCES here.
+    trackRecentFile('/tmp/a.png', 'image');
+    fs.chmodSync(recentPath(), 0o444);
+    trackRecentFile('/tmp/b.png', 'image');
+    expect(loadRecentFiles().map((f) => f.path)).toEqual(['/tmp/b.png', '/tmp/a.png']);
+    expect(fs.existsSync(`${recentPath()}.tmp`)).toBe(false); // no tmp left behind
   });
 });
 

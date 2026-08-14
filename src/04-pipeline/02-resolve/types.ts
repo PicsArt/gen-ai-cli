@@ -30,6 +30,19 @@ const SDK_GAP_FLAGS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * `gen-ai config set defaultModel <id>` — returns the configured model's id
+ * when it exists and is usable by this flow, else undefined so the caller
+ * falls through to the flow's own default. A global preference must never
+ * break a flow the model can't serve.
+ */
+export function configDefaultModelId(flow: FlowSpec, configured: string | undefined): string | undefined {
+  if (!configured) return undefined;
+  const model = findModel(configured);
+  if (!model || !flow.modelFilter(model)) return undefined;
+  return model.id;
+}
+
+/**
  * Resolve a model from a flag value (ID or name).
  * Returns undefined if not found or doesn't match the operation filter.
  */
@@ -133,8 +146,8 @@ export function validateFileSlotLimits(model: ModelDefinition, files: ResolvedIn
  * are silently ignored — universal flags like `--json`, `--quiet` live
  * here and must not leak into the SDK `GenerationContext`.
  */
-export function buildParamsFromFlags(flags: Record<string, unknown>): Record<string, unknown> {
-  const params: Record<string, unknown> = { ...collectGenerationContext(flags, getCatalog()) };
+export function buildParamsFromFlags(flags: Record<string, unknown>, modelId?: string): Record<string, unknown> {
+  const params: Record<string, unknown> = { ...collectGenerationContext(flags, getCatalog(), modelId) };
 
   for (const [flag, ctxKey] of Object.entries(SDK_GAP_FLAGS)) {
     if (flags[flag] != null) params[ctxKey] = flags[flag];

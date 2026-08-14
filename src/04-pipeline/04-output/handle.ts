@@ -82,12 +82,19 @@ export async function handleOutput(
   // Record each result URL separately for multi-result generations
   const resultUrls =
     result.results && result.results.length > 0 ? result.results.map((r) => r.url) : result.url ? [result.url] : [];
+  // Input media URLs live in params — execute() merges resolved file URLs in
+  // as imageUrls/videoUrl/audioUrl. Recorded so redo/replay can rebuild the
+  // --image/--video/--audio flags (reconstruct-args reads these fields).
+  const params = result.params as Record<string, unknown>;
   const historyEntry: HistoryEntry = {
     timestamp: new Date().toISOString(),
     model: result.model.id,
     modelName: result.model.name,
-    prompt: (result.params as Record<string, unknown>).prompt as string | undefined,
+    prompt: params.prompt as string | undefined,
     params: result.params,
+    imageUrls: params.imageUrls as string[] | undefined,
+    videoUrl: params.videoUrl as string | undefined,
+    audioUrl: params.audioUrl as string | undefined,
     resultUrl: resultUrls[0],
     rawResultUrl: resultUrls[0],
     resultUrls: resultUrls.length > 1 ? resultUrls : undefined,

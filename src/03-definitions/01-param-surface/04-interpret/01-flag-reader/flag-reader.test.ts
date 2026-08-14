@@ -19,6 +19,9 @@ import { UsageError } from '#infra/errors/usage.ts';
 import {
   MODEL_BOOLEAN,
   MODEL_CATALOG,
+  MODEL_CONFLICT_RANGE,
+  MODEL_CONFLICT_TEXT,
+  MODEL_ENUM_EMPTY,
   MODEL_ENUM_NUMBER,
   MODEL_ENUM_STRING,
   MODEL_FILE,
@@ -160,8 +163,8 @@ describe('collectGenerationContext — object descriptors', () => {
     );
     expect(ctx).toEqual({
       multiPrompt: [
-        { index: 1, prompt: 'wide shot', duration: '5' },
-        { index: 2, prompt: 'close-up', duration: '7' },
+        { index: 0, prompt: 'wide shot', duration: '5' },
+        { index: 1, prompt: 'close-up', duration: '7' },
       ],
     });
   });
@@ -333,5 +336,103 @@ describe('collectGenerationContext — against the real SDK', () => {
     expect(ctx.prompt).toBe('hi');
     expect(ctx).not.toHaveProperty('soundEffectPrompt');
     expect(ctx).not.toHaveProperty('externalTaskId');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Model-aware coercion — the selected model's descriptor wins            */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('collectGenerationContext — model-aware coercion', () => {
+  const cat = loadCatalog([MODEL_CONFLICT_TEXT, MODEL_CONFLICT_RANGE], ALIAS_MAP);
+
+  it('coerces against the selected model own descriptor, not the merged one', () => {
+    // Merged kind is text (first-seen); fx-conflict-range declares range 0-1.
+    const ctx = collectGenerationContext({ overlap: '0.7' }, cat, 'fx-conflict-range');
+    expect(ctx).toEqual({ overlap: 0.7 });
+  });
+
+  it('rejects values the selected model does not accept even when the merged surface would', () => {
+    // '5' is a fine text value (merged kind), but out of fx-conflict-range's [0, 1].
+    expect(() => collectGenerationContext({ overlap: '5' }, cat, 'fx-conflict-range')).toThrow(UsageError);
+  });
+
+  it('keeps merged-descriptor behavior when no model id is given', () => {
+    expect(collectGenerationContext({ overlap: '5' }, cat)).toEqual({ overlap: '5' });
+  });
+
+  it('falls back to the merged descriptor for a model that does not declare the param', () => {
+    expect(collectGenerationContext({ overlap: 'free text' }, cat, 'fx-boolean')).toEqual({ overlap: 'free text' });
+  });
+
+  it('accepts any value for a zero-option enum surface instead of rejecting everything', () => {
+    const emptyCat = loadCatalog([MODEL_ENUM_EMPTY], ALIAS_MAP);
+    expect(collectGenerationContext({ 'video-id': 'vid_123' }, emptyCat)).toEqual({ videoId: 'vid_123' });
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Real-SDK regressions for the kind-merge bugs                           */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('collectGenerationContext — real-SDK kind-conflict regressions', () => {
+  it('flux-3-video keeps duration as its own string enum, not the merged number', async () => {
+    const { getCatalog } = await import('../../02-catalog/index.ts');
+    const { findModel } = await import('@picsart/ai-sdk');
+    const model = findModel('flux-3-video');
+    expect(model, 'flux-3-video missing from SDK — update this regression').toBeTruthy();
+    const ctx = collectGenerationContext({ duration: '10' }, getCatalog(), 'flux-3-video');
+    expect(ctx.duration).toBe('10');
+  });
+
+  it('kling-t2a accepts a fractional duration from its own range descriptor', async () => {
+    const { getCatalog } = await import('../../02-catalog/index.ts');
+    const { findModel } = await import('@picsart/ai-sdk');
+    const model = findModel('kling-t2a');
+    expect(model, 'kling-t2a missing from SDK — update this regression').toBeTruthy();
+    const ctx = collectGenerationContext({ duration: '7.5' }, getCatalog(), 'kling-t2a');
+    expect(ctx.duration).toBe(7.5);
+  });
+
+  it('kling-t2a rejects a duration outside its own range even though the merged enum allows it', async () => {
+    const { getCatalog } = await import('../../02-catalog/index.ts');
+    expect(() => collectGenerationContext({ duration: '300' }, getCatalog(), 'kling-t2a')).toThrow(UsageError);
+  });
+
+  it('heygen-video-avatar accepts a videoId through the universal catalog', async () => {
+    const { getCatalog } = await import('../../02-catalog/index.ts');
+    const { findModel } = await import('@picsart/ai-sdk');
+    const model = findModel('heygen-video-avatar');
+    expect(model, 'heygen-video-avatar missing from SDK — update this regression').toBeTruthy();
+    const ctx = collectGenerationContext({ 'video-id': 'vid_abc' }, getCatalog(), 'heygen-video-avatar');
+    expect(ctx.videoId).toBe('vid_abc');
+  });
+
+  it('picsart-qwen-image-edit-angle loraWeights is a bare object, not a one-item array', async () => {
+    const { getCatalog } = await import('../../02-catalog/index.ts');
+    const { findModel } = await import('@picsart/ai-sdk');
+    const model = findModel('picsart-qwen-image-edit-angle');
+    expect(model, 'picsart-qwen-image-edit-angle missing from SDK — update this regression').toBeTruthy();
+    const ctx = collectGenerationContext(
+      { 'lora-weights-lora-angle': '0.5' },
+      getCatalog(),
+      'picsart-qwen-image-edit-angle',
+    ) as Record<string, unknown>;
+    expect(Array.isArray(ctx.loraWeights)).toBe(false);
+    expect(ctx.loraWeights).toMatchObject({ lora_angle: 0.5 });
+  });
+
+  it('kling-v3 multiPrompt indices stay inside the declared 0..5 range for six shots', async () => {
+    const { getCatalog } = await import('../../02-catalog/index.ts');
+    const ctx = collectGenerationContext(
+      {
+        'multi-prompt-prompt': ['a', 'b', 'c', 'd', 'e', 'f'],
+        'multi-prompt-duration': ['1', '1', '1', '1', '1', '1'],
+      },
+      getCatalog(),
+      'kling-v3',
+    ) as Record<string, unknown>;
+    const indices = (ctx.multiPrompt as Record<string, unknown>[]).map((i) => i.index);
+    expect(indices).toEqual([0, 1, 2, 3, 4, 5]);
   });
 });

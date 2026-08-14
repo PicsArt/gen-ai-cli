@@ -177,20 +177,37 @@ export abstract class BaseCommand extends Command {
     // oclif usage errors (unknown flags, missing args, bad flag values, etc.)
     const oclif = (err as { oclif?: { exit: number } }).oclif;
     if (oclif?.exit === 2) {
-      process.stderr.write(
-        `${renderCard(err.message.split('\n'), {
-          color: this.color,
-          title: '✗ Error',
-          borderColor: '#F8495A',
-        })}\n`,
-      );
+      if (this.isJsonMode) {
+        // Same contract as the CliError branch: --json means machine-readable
+        // stdout for every error path, not just CliError.
+        process.stdout.write(`${JSON.stringify({ error: err.message, code: ExitCode.USAGE_ERROR })}\n`);
+      } else {
+        process.stderr.write(
+          `${renderCard(err.message.split('\n'), {
+            color: this.color,
+            title: '✗ Error',
+            borderColor: '#F8495A',
+          })}\n`,
+        );
+      }
       await this.exitAfterFlush(ExitCode.USAGE_ERROR);
     }
 
     // Unexpected error — show the actual message and write debug log
     const logPath = this.tryWriteDebugLog(err);
-
     const msg = err.message || 'Something went wrong unexpectedly.';
+
+    if (this.isJsonMode) {
+      process.stdout.write(
+        `${JSON.stringify({
+          error: msg,
+          code: ExitCode.GENERAL_ERROR,
+          ...(logPath ? { debugLog: logPath } : {}),
+        })}\n`,
+      );
+      await this.exitAfterFlush(ExitCode.GENERAL_ERROR);
+    }
+
     const lines = msg.split('\n');
     if (logPath) {
       lines.push('');

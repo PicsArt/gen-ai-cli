@@ -83,9 +83,15 @@ function unreachableKind(desc: never): never {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 function makeEnumFlag(surface: ParamSurface, desc: EnumDescriptor<string> | EnumDescriptor<number>): unknown {
+  // No oclif `options` when (a) models disagree on this param's kind — the
+  // merged option list would pre-reject values that are perfectly valid for
+  // the selected model (the flag-reader re-validates against the model's own
+  // descriptor) — or (b) the enum has zero options (dynamic platform-catalog
+  // values), where `options: []` would reject every input.
+  const enforceable = surface.conflicts.length === 0 && desc.options.length > 0;
   return Flags.string({
     description: describeFlag(surface),
-    options: desc.options.map((o) => String(o.id)),
+    ...(enforceable ? { options: desc.options.map((o) => String(o.id)) } : {}),
     ...aliasOpts(surface),
   });
 }

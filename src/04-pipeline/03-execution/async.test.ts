@@ -46,7 +46,9 @@ function ai(updates: StatusUpdate[], result?: GenerateResult) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     submit: vi.fn(async (_id: TypedModelId, _ctx: GenerationContext) => handle),
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    subscribe: vi.fn((_h: WorkflowJobHandle) => yieldStatuses(updates)),
+    subscribe: vi.fn((_h: WorkflowJobHandle, _opts?: { intervalMs?: number; maxAttempts?: number }) =>
+      yieldStatuses(updates),
+    ),
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     result: vi.fn(async (_h: WorkflowJobHandle, _id: TypedModelId) => result as GenerateResult),
   };

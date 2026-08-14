@@ -35,6 +35,7 @@ vi.mock('#services/history.ts', () => ({ appendHistory: appendHistoryMock }));
 
 import type { OutputDeps } from '#root/deps.ts';
 import type { ExecutionResult, OutputConfig } from '#root/types.ts';
+import type { HistoryEntry } from '#services/history.ts';
 import type { DriveContext } from './drive.ts';
 import { handleOutput } from './handle.ts';
 
@@ -205,6 +206,28 @@ describe('handleOutput — history', () => {
     );
     const [entry] = appendHistoryMock.mock.calls[0];
     expect((entry as { resultUrls?: string[] }).resultUrls).toEqual(['a.png', 'b.png']);
+  });
+
+  it('records input media (imageUrls/videoUrl/audioUrl) from params so redo/replay can rebuild flags', async () => {
+    await handleOutput(
+      done({
+        params: {
+          prompt: 'sunset',
+          imageUrls: ['https://x/a.png', 'https://x/b.png'],
+          videoUrl: 'https://x/v.mp4',
+          audioUrl: 'https://x/s.mp3',
+        },
+      }),
+      cfg(),
+      deps,
+    );
+    const [entry] = appendHistoryMock.mock.calls[0] as [HistoryEntry];
+    expect(entry.imageUrls).toEqual(['https://x/a.png', 'https://x/b.png']);
+    expect(entry.videoUrl).toBe('https://x/v.mp4');
+    expect(entry.audioUrl).toBe('https://x/s.mp3');
+    // The redo/replay round-trip over these fields is asserted in
+    // 05-shells/02-commands/meta/reconstruct-args.test.ts — a layer-4 test
+    // must not import layer-5 modules.
   });
 
   it('swallows history failure silently', async () => {

@@ -12,7 +12,12 @@ import { Models } from '@picsart/ai-sdk';
 import { filterCatalog } from '#flows';
 import { getOutput } from '#infra/ui-core/output.ts';
 import { AUDIO_EXTS, VIDEO_EXTS } from '#infra/utils/media-types.ts';
-import { generateWizardStepsFromCatalog, getCatalog, type WizardStep as SchemaStep } from '#param-surface';
+import {
+  collectContextFromAnswers,
+  generateWizardStepsFromCatalog,
+  getCatalog,
+  type WizardStep as SchemaStep,
+} from '#param-surface';
 import type { NavResult, StepResult, WizardStep } from '#pipeline/01-wizard-runner/wizard-state.ts';
 import { BACK, CANCEL, runWizard } from '#pipeline/01-wizard-runner/wizard-state.ts';
 import { listDriveMedia } from '#services/drive.ts';
@@ -97,7 +102,8 @@ export async function promptForParams(
   ctx: Readonly<Partial<GenerationContext>>,
   previousValues?: Record<string, unknown>,
 ): Promise<StepResult<Partial<GenerationContext>>> {
-  const schemaSteps = generateWizardStepsFromCatalog(filterCatalog(getCatalog(), new Set([model.id])));
+  const narrowed = filterCatalog(getCatalog(), new Set([model.id]));
+  const schemaSteps = generateWizardStepsFromCatalog(narrowed);
 
   const steps: WizardStep[] = [];
   for (const s of schemaSteps) {
@@ -113,11 +119,12 @@ export async function promptForParams(
   const result = await runWizard(steps);
   if (result === null) return BACK;
 
-  const updates: Partial<GenerationContext> = {};
-  for (const [key, val] of Object.entries(result)) {
-    if (val !== undefined) (updates as Record<string, unknown>)[key] = val;
-  }
-  return updates;
+  // Interpret the raw answers through the layer-3 wizard-reader — the SAME
+  // guarantees the scripted path gets from the flag-reader: per-descriptor
+  // coercion, subfield default backfill, and positional `index` numbering.
+  // Copying answers verbatim is how multi-shot items used to ship with the
+  // descriptor-default index 0 on every item (rejected by the API).
+  return collectContextFromAnswers(result, narrowed);
 }
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -225,7 +232,7 @@ async function askNumeric(
 async function runObjectStep(
   s: Extract<SchemaStep, { kind: 'object' }>,
   previous?: Record<string, unknown>[],
-): Promise<NavResult<Record<string, unknown>[] | undefined>> {
+): Promise<NavResult<Record<string, unknown>[] | Record<string, unknown> | undefined>> {
   // Edit mode with existing items: offer to keep them. Declining the
   // replace-gate returns the PREVIOUS items — never silently drops them.
   if (previous) {
@@ -240,7 +247,14 @@ async function runObjectStep(
     // to provide voice references for a simple video?" complaint.
     const useIt = await confirmWithNav({ message: `Add ${s.label}? (optional)`, default: false });
     if (useIt === BACK || useIt === CANCEL) return useIt;
-    if (!useIt) return [];
+    if (!useIt) return s.array ? [] : undefined;
+  }
+
+  // Non-array object (SDK: `array` undefined = ONE bare object, e.g.
+  // loraWeights) — no "how many?" loop, collect a single record.
+  if (!s.array) {
+    const single = await runObjectItem(s, 0, 1);
+    return single === null ? BACK : single;
   }
 
   const max = s.arrayMax ?? 1;
@@ -254,19 +268,34 @@ async function runObjectStep(
 
   const items: Record<string, unknown>[] = [];
   for (let i = 0; i < count; i++) {
-    const subRunnerSteps: WizardStep[] = [];
-    for (const sub of s.fields) {
-      const ss = buildRunnerStep(sub);
-      if (ss !== undefined) subRunnerSteps.push(ss);
-    }
-    if (subRunnerSteps.length === 0) continue;
-
-    getOutput().info(`\n${s.label} ${i + 1}/${count}`);
-    const subAnswers = await runWizard(subRunnerSteps);
+    const subAnswers = await runObjectItem(s, i, count);
     if (subAnswers === null) return BACK;
-    items.push(subAnswers);
+    if (subAnswers !== undefined) items.push(subAnswers);
   }
   return items;
+}
+
+/**
+ * One item's sub-wizard. The `index` subfield is never asked: items are
+ * created in order, so the wizard-reader auto-numbers them positionally
+ * from the descriptor's min — asking "index?" only invites values that
+ * fight the positional convention.
+ */
+async function runObjectItem(
+  s: Extract<SchemaStep, { kind: 'object' }>,
+  i: number,
+  count: number,
+): Promise<Record<string, unknown> | undefined | null> {
+  const subRunnerSteps: WizardStep[] = [];
+  for (const sub of s.fields) {
+    if (sub.key === 'index') continue;
+    const ss = buildRunnerStep(sub);
+    if (ss !== undefined) subRunnerSteps.push(ss);
+  }
+  if (subRunnerSteps.length === 0) return undefined;
+
+  getOutput().info(`\n${s.label} ${i + 1}/${count}`);
+  return runWizard(subRunnerSteps);
 }
 
 /** Pre-fetch Drive media for all input types the model supports. */

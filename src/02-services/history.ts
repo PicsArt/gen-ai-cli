@@ -125,6 +125,7 @@ export function appendHistory(entry: HistoryEntry): void {
     imageUrls: entry.imageUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,
     videoUrl: sanitizeUrl(entry.videoUrl),
     audioUrl: sanitizeUrl(entry.audioUrl),
+    resultUrls: entry.resultUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,
   };
   const entries = loadHistory();
   entries.push(sanitized);
@@ -204,7 +205,12 @@ export function trackRecentFile(filePath: string, type: 'image' | 'video' | 'aud
   const configured = getUserConfig().recentFilesCount;
   const limit = Number.isFinite(configured) && configured! > 0 ? Math.min(configured!, 500) : MAX_RECENT_FILES;
   const trimmed = files.slice(0, limit);
-  fs.writeFileSync(getRecentFilesPath(), JSON.stringify(trimmed, null, 2), { mode: 0o600 });
+  // Atomic tmp + rename — same pattern as appendHistory: a crash mid-write
+  // must not leave recent-files.json corrupt.
+  const dest = getRecentFilesPath();
+  const tmp = `${dest}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(trimmed, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, dest);
 }
 
 /** Get recent files filtered by media type. */

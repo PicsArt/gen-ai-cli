@@ -7,7 +7,12 @@ export default class Logout extends BaseCommand {
   static examples = ['<%= config.bin %> logout'];
 
   async run() {
-    await logout();
+    const { envCredentialsActive } = await logout();
     this.out.success('Logged out.');
+    if (envCredentialsActive) {
+      this.out.warn(
+        'PICSART_ACCESS_TOKEN and PICSART_USER_ID are still set — env credentials remain active. Unset them to fully sign out.',
+      );
+    }
   }
 }

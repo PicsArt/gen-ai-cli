@@ -6,7 +6,6 @@
 import * as readline from 'node:readline';
 import { run } from '@oclif/core';
 import chalk from 'chalk';
-import { CliError } from '#infra/errors/index.ts';
 import { printBanner } from '#infra/ui/banner.ts';
 import { showCardHelp } from '#infra/ui/custom-help.ts';
 import { getColor } from '#infra/ui-core/color.ts';
@@ -16,9 +15,9 @@ import { COMMANDS } from '#root/commands-manifest.ts';
 import { printUpdateNotice } from '#services/update-check.ts';
 import { getValidCommands, renderOperationMenu } from './menu.ts';
 import type { Operation } from './menu-registry.ts';
+import { DOUBLE_CTRL_C_MS, decideReplError } from './repl-error.ts';
 import { resolvePartialCommand, resolveShortcut } from './shortcuts.ts';
 
-const DOUBLE_CTRL_C_MS = 1000;
 let lastCtrlCAt = 0;
 const commandHistory: string[] = [];
 
@@ -236,23 +235,21 @@ export async function startRepl(version: string): Promise<void> {
 
     suspendRl();
 
+    let quit = false;
     try {
       await run([resolvedCommand, ...cmdArgs], dispatchUrl);
     } catch (err: unknown) {
-      if (err instanceof CliError && err.message === 'USER_CANCEL') {
-        const now = Date.now();
-        if (now - lastCtrlCAt < DOUBLE_CTRL_C_MS) break;
-        lastCtrlCAt = now;
-      } else if (err instanceof CliError) {
-        out.error(err.friendlyMessage ?? err.message);
-      } else if (err instanceof Error && 'oclif' in err) {
-        const oclifErr = err as Error & { oclif?: { exit?: number } };
-        if (oclifErr.oclif?.exit !== 0) out.error(err.message);
-      } else if (err instanceof Error) {
-        out.error(err.message);
-      } else {
-        out.error(String(err));
-      }
+      const decision = decideReplError(err, lastCtrlCAt, Date.now());
+      lastCtrlCAt = decision.lastCtrlCAt;
+      if (decision.message) out.error(decision.message);
+      quit = decision.quit;
     }
+
+    // BaseCommand.catch sets process.exitCode before its terminal exit()
+    // throw — reset it so one failed command doesn't poison the exit status
+    // of the whole REPL session.
+    process.exitCode = 0;
+
+    if (quit) break;
   }
 }

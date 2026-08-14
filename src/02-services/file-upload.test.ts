@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileError } from '#infra/errors/file.ts';
+import { ALL_MEDIA_EXTS } from '#infra/utils/media-types.ts';
 import { isLocalFile, resolveFileInput, uploadFile } from './file-upload.ts';
 
 let tmpDir: string;
@@ -128,6 +129,31 @@ describe('uploadFile — happy path', () => {
   });
 });
 
+describe('uploadFile — MIME coverage', () => {
+  it('resolves every ALL_MEDIA_EXTS extension to a specific MIME type (never octet-stream)', async () => {
+    // Regression: the MIME map was narrower than the media-types allowlist, so
+    // heif/bmp/tiff/svg/avi/mkv/m4v/wmv/aac/ogg/flac/wma uploaded as
+    // application/octet-stream.
+    const captured: Record<string, string | undefined> = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const file = (init?.body as FormData).get('file') as File;
+      captured[path.extname(file.name)] = file.type;
+      return new Response(JSON.stringify({ url: 'https://x' }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    for (const ext of ALL_MEDIA_EXTS) {
+      const filePath = path.join(tmpDir, `sample${ext}`);
+      fs.writeFileSync(filePath, 'x');
+      await uploadFile(filePath, { token: 't', uid: 'u' });
+    }
+
+    for (const ext of ALL_MEDIA_EXTS) {
+      expect(captured[ext], `MIME for ${ext}`).toBeTruthy();
+      expect(captured[ext], `MIME for ${ext}`).not.toBe('application/octet-stream');
+    }
+  });
+});
+
 /* ─────────────────────────────────────────────────────────────────────── */
 /*  uploadFile — error paths                                              */
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -187,6 +213,91 @@ describe('uploadFile — transport failures', () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(NetworkError);
+  });
+});
+
+describe('uploadFile — 401 token refresh', () => {
+  let tmpHome: string;
+  let originalHome: string | undefined;
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-upload-home-'));
+    originalHome = process.env.HOME;
+    process.env.HOME = tmpHome;
+  });
+  afterEach(() => {
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  function writeCreds(): void {
+    fs.mkdirSync(path.join(tmpHome, '.gen-ai'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, '.gen-ai', 'credentials.json'),
+      JSON.stringify({
+        token: 'stale-tok',
+        refreshToken: 'rfr',
+        uid: 'usr',
+        email: 'a@b.c',
+        expiresAt: new Date(Date.now() - 3600_000).toISOString(),
+      }),
+    );
+  }
+
+  it('refreshes the token and retries once on 401 (stale token snapshot)', async () => {
+    // Regression: long runs held a token snapshot; a mid-run expiry surfaced
+    // as a hard 401 even though a refresh token was available on disk.
+    writeCreds();
+    const filePath = path.join(tmpDir, 'a.png');
+    fs.writeFileSync(filePath, 'x');
+
+    const uploadAuthHeaders: string[] = [];
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/oauth2/refresh')) {
+        return new Response(
+          JSON.stringify({
+            status: 'success',
+            response: {
+              access_token: 'fresh-tok',
+              refresh_token: 'rfr-2',
+              expires_in: 3600,
+              refresh_token_expires_in: 86_400,
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      uploadAuthHeaders.push((init?.headers as Record<string, string>).Authorization);
+      if (uploadAuthHeaders.length === 1) {
+        return new Response('Unauthorized', { status: 401, statusText: 'Unauthorized' });
+      }
+      return new Response(JSON.stringify({ url: 'https://cdn.example.com/retried.png' }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const url = await uploadFile(filePath, { token: 'stale-tok', uid: 'usr' });
+    expect(url).toBe('https://cdn.example.com/retried.png');
+    expect(uploadAuthHeaders).toEqual(['Bearer stale-tok', 'Bearer fresh-tok']);
+  });
+
+  it('surfaces the original 401 ApiError when no refresh token is available (env-cred run)', async () => {
+    // No credentials file — refresh is impossible; the 401 must come through untouched.
+    const filePath = path.join(tmpDir, 'a.png');
+    fs.writeFileSync(filePath, 'x');
+
+    globalThis.fetch = vi.fn(
+      async () => new Response('Unauthorized', { status: 401, statusText: 'Unauthorized' }),
+    ) as unknown as typeof fetch;
+
+    const { ApiError } = await import('#infra/errors/api.ts');
+    const err = await uploadFile(filePath, { token: 'env-tok', uid: 'usr' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as InstanceType<typeof ApiError>).statusCode).toBe(401);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1); // no pointless retry
   });
 });
 

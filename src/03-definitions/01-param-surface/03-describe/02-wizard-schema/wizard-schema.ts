@@ -83,6 +83,12 @@ export type WizardStep =
       label: string;
       required?: boolean;
       fields: readonly WizardStep[];
+      /**
+       * True when the descriptor declares `array` (runner loops N items).
+       * False = SDK's "single bare object" convention (e.g. loraWeights) —
+       * the runner must collect exactly one record, not a list.
+       */
+      array: boolean;
       arrayMax?: number;
     };
 
@@ -246,7 +252,7 @@ function makeObjectStep(key: string, label: string, descriptor: ObjectDescriptor
     const br = b.required === true ? 0 : 1;
     return ar - br;
   });
-  const step: WizardStep = { kind: 'object', key, label, fields };
+  const step: WizardStep = { kind: 'object', key, label, fields, array: descriptor.array !== undefined };
   if (descriptor.array?.max !== undefined) {
     return { ...step, arrayMax: descriptor.array.max };
   }

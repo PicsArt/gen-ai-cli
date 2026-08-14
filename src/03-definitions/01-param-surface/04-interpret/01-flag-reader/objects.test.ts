@@ -96,12 +96,12 @@ describe('interpretObjectArray — multi-field', () => {
     ]);
   });
 
-  it('backfills positional 1..N indices when the caller does not supply --shot-index', () => {
-    // `index` is a special subfield: when no non-zero caller value is
-    // present, autoNumberIndexField fills 1, 2, … positionally so vendor
-    // APIs that require 1-based consecutive indices (Kling V3 multi-shot)
-    // accept the payload. Other optional subfields still use descriptor
-    // defaults — but `index` doesn't.
+  it('backfills consecutive indices FROM THE DESCRIPTOR MIN when the caller does not supply --shot-index', () => {
+    // `index` is a special subfield: when the caller does not pass the
+    // --*-index flag, autoNumberIndexField fills consecutive values starting
+    // at the descriptor's declared minimum. Kling V3 multiPrompt declares
+    // range 0-5 with array.max 6 — 1-based numbering would overflow the
+    // range at six shots (indices 1..6 vs max 5).
     const items = interpretObjectArray(
       {
         'shot-prompt': ['wide shot', 'close-up'],
@@ -110,9 +110,45 @@ describe('interpretObjectArray — multi-field', () => {
       shotSurface,
     );
     expect(items).toEqual([
-      { index: 1, prompt: 'wide shot', duration: '5' },
-      { index: 2, prompt: 'close-up', duration: '7' },
+      { index: 0, prompt: 'wide shot', duration: '5' },
+      { index: 1, prompt: 'close-up', duration: '7' },
     ]);
+  });
+
+  it('six shots stay within the declared index range (0..5, never 1..6)', () => {
+    const items = interpretObjectArray(
+      {
+        'shot-prompt': ['a', 'b', 'c', 'd', 'e', 'f'],
+        'shot-duration': ['1', '1', '1', '1', '1', '1'],
+      },
+      shotSurface,
+    );
+    expect((items as Record<string, unknown>[]).map((i) => i.index)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('preserves an explicit all-zero --shot-index verbatim (caller expressed intent)', () => {
+    const items = interpretObjectArray(
+      {
+        'shot-prompt': ['a', 'b'],
+        'shot-duration': ['5', '7'],
+        'shot-index': ['0', '0'],
+      },
+      shotSurface,
+    );
+    expect((items as Record<string, unknown>[]).map((i) => i.index)).toEqual([0, 0]);
+  });
+
+  it('backfills 1-based when the index descriptor min is 1', () => {
+    const oneBased = surface('shot', {
+      kind: 'object',
+      array: { max: 6 },
+      fields: {
+        index: { kind: 'range', min: 1, max: 6, default: 1 },
+        prompt: { kind: 'text' },
+      },
+    });
+    const items = interpretObjectArray({ 'shot-prompt': ['a', 'b'] }, oneBased);
+    expect((items as Record<string, unknown>[]).map((i) => i.index)).toEqual([1, 2]);
   });
 
   it('uses MAX subfield-array length and preserves caller-supplied indices', () => {
@@ -203,9 +239,10 @@ describe('interpretObjectArray — error paths', () => {
     expect(() => interpretObjectArray({}, nonObjectSurface())).toThrow(/object/i);
   });
 
-  it('treats a non-Array flag value as missing for a multi-field descriptor', () => {
+  it('treats a non-Array flag value as missing for a multi-field ARRAY descriptor', () => {
     const s = surface('shot', {
       kind: 'object',
+      array: { max: 6 },
       fields: { prompt: { kind: 'text' }, duration: { kind: 'text' } },
     });
     const items = interpretObjectArray({ 'shot-prompt': 'wide shot' as unknown as string[] }, s);
@@ -217,6 +254,7 @@ describe('interpretObjectArray — subfield kinds with defaults', () => {
   it('uses enum default for missing optional subfield', () => {
     const s = surface('omni-image', {
       kind: 'object',
+      array: { max: 10 },
       fields: {
         image_url: { kind: 'text' },
         type: {
@@ -237,6 +275,7 @@ describe('interpretObjectArray — subfield kinds with defaults', () => {
   it('uses boolean default for missing optional subfield', () => {
     const s = surface('thing', {
       kind: 'object',
+      array: { max: 4 },
       fields: {
         name: { kind: 'text' },
         active: { kind: 'boolean', default: true },
@@ -249,6 +288,7 @@ describe('interpretObjectArray — subfield kinds with defaults', () => {
   it('uses range default for missing optional subfield', () => {
     const s = surface('thing', {
       kind: 'object',
+      array: { max: 4 },
       fields: {
         name: { kind: 'text' },
         weight: { kind: 'range', min: 0, max: 100, default: 50 },
@@ -291,8 +331,42 @@ describe('multiPrompt — worked example end-to-end', () => {
       shotSurface,
     );
     expect(items).toEqual([
-      { index: 1, prompt: 'wide shot of a sunset', duration: '5' },
-      { index: 2, prompt: 'close-up of a leaf', duration: '7' },
+      { index: 0, prompt: 'wide shot of a sunset', duration: '5' },
+      { index: 1, prompt: 'close-up of a leaf', duration: '7' },
     ]);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Non-array objects — `array` undefined means ONE bare object            */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('interpretObjectArray — non-array (single object) descriptors', () => {
+  // SDK convention: `array: undefined` = the param is a single object, not a
+  // list (e.g. picsart-qwen-image-edit-angle loraWeights). The payload must
+  // be `{...}`, not `[{...}]`.
+  const loraSurface = surface('lora-weights', {
+    kind: 'object',
+    fields: {
+      lora_angle: { kind: 'range', min: 0, max: 1, default: 1 },
+      lora_angle_lighting: { kind: 'range', min: 0, max: 1, default: 1 },
+    },
+  });
+
+  it('returns a bare object (not an array) from scalar subfield flags', () => {
+    const value = interpretObjectArray({ 'lora-weights-lora-angle': '0.5' }, loraSurface);
+    expect(value).toEqual({ lora_angle: 0.5, lora_angle_lighting: 1 });
+  });
+
+  it('returns undefined when no subfield flag is set', () => {
+    expect(interpretObjectArray({}, loraSurface)).toBeUndefined();
+  });
+
+  it('single-field non-array object returns a bare object from a scalar flag', () => {
+    const single = surface('voice', {
+      kind: 'object',
+      fields: { voice_id: { kind: 'text' } },
+    });
+    expect(interpretObjectArray({ voice: 'vx_1' }, single)).toEqual({ voice_id: 'vx_1' });
   });
 });

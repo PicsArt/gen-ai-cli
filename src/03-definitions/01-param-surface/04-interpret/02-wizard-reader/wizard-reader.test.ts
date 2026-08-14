@@ -163,16 +163,51 @@ describe('collectContextFromAnswers — object descriptors', () => {
     expect(ctx).toEqual({ multiPrompt: [{ index: 3, prompt: 'a', duration: '5' }] });
   });
 
-  it('backfills missing subfields from their descriptor defaults; `index` is auto-numbered 1..N', () => {
+  it('backfills missing subfields from their descriptor defaults; `index` is auto-numbered from its min', () => {
     const ctx = collectContextFromAnswers(
-      { multiPrompt: [{ prompt: 'a', duration: '5' }] }, // index omitted
+      {
+        multiPrompt: [
+          { prompt: 'a', duration: '5' },
+          { prompt: 'b', duration: '7' },
+        ],
+      }, // index omitted
       objectCat(),
     );
-    // `index` is a special subfield — when no non-zero caller value is
-    // present, autoNumberIndexField positions it 1..N so vendors that
-    // require 1-based consecutive indices (Kling V3 multi-shot) accept
-    // the payload. Other subfields still use descriptor defaults.
-    expect(ctx).toEqual({ multiPrompt: [{ index: 1, prompt: 'a', duration: '5' }] });
+    // `index` is a special subfield — when no answer carries one,
+    // autoNumberIndexField fills consecutive values starting at the
+    // descriptor's declared minimum (0 for Kling V3 multiPrompt, whose
+    // range 0-5 must fit array.max 6 items). Explicit answers stay verbatim.
+    expect(ctx).toEqual({
+      multiPrompt: [
+        { index: 0, prompt: 'a', duration: '5' },
+        { index: 1, prompt: 'b', duration: '7' },
+      ],
+    });
+  });
+
+  it('a non-array object descriptor accepts one bare record and returns it unwrapped', () => {
+    const cat = loadCatalog(
+      [
+        {
+          id: 'm-lora',
+          paramConfig: {
+            loraWeights: {
+              descriptor: {
+                kind: 'object',
+                fields: {
+                  lora_angle: { kind: 'range', min: 0, max: 1, default: 1 },
+                  lora_angle_lighting: { kind: 'range', min: 0, max: 1, default: 1 },
+                },
+              },
+            },
+          },
+        } as ModelLike,
+      ],
+      ALIAS_MAP,
+    );
+    expect(collectContextFromAnswers({ loraWeights: { lora_angle: '0.5' } }, cat)).toEqual({
+      loraWeights: { lora_angle: 0.5, lora_angle_lighting: 1 },
+    });
   });
 
   it('throws UsageError when a subfield without default is missing', () => {
@@ -263,7 +298,7 @@ describe('collectContextFromAnswers — composite', () => {
       prompt: 'a sunset',
       generateAudio: true,
       duration: 10,
-      multiPrompt: [{ index: 1, prompt: 'wide', duration: '5' }],
+      multiPrompt: [{ index: 0, prompt: 'wide', duration: '5' }],
     });
   });
 });
