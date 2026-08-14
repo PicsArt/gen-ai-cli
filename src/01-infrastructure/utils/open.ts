@@ -4,21 +4,31 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 
+/**
+ * Spawn a detached helper, swallowing the async 'error' event a missing
+ * binary emits (e.g. no xdg-open) — without a listener it would crash the
+ * process; a try/catch around spawn() cannot catch it.
+ */
+function spawnDetached(command: string, args: string[]): void {
+  const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+  child.on('error', () => {
+    /* best effort */
+  });
+  child.unref();
+}
+
 /** Open a URL or file path in the default system application. */
 export function openInDefault(target: string): void {
   try {
     if (process.platform === 'darwin') {
-      spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
+      spawnDetached('open', [target]);
     } else if (process.platform === 'win32') {
       // Use Start-Process with single-quoted literal to prevent PowerShell expression injection.
       // Single quotes in the target are escaped by doubling them ('').
       const escaped = target.replace(/'/g, "''");
-      spawn('powershell', ['-NoProfile', '-Command', `Start-Process -FilePath '${escaped}'`], {
-        detached: true,
-        stdio: 'ignore',
-      }).unref();
+      spawnDetached('powershell', ['-NoProfile', '-Command', `Start-Process -FilePath '${escaped}'`]);
     } else {
-      spawn('xdg-open', [target], { detached: true, stdio: 'ignore' }).unref();
+      spawnDetached('xdg-open', [target]);
     }
   } catch {
     /* best effort */

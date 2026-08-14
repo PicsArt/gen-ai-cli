@@ -66,8 +66,16 @@ function renderFlagRows(
     const more = f.options.length > 6 ? ` ${color.dim(`(and ${f.options.length - 6} more)`)}` : '';
     rows.push(`  ${' '.repeat(36)} ${color.dim(`options: ${preview}${more}`)}`);
   }
-  if (f.default !== undefined && f.default !== false && f.default !== '') {
-    rows.push(`  ${' '.repeat(36)} ${color.dim(`default: ${f.default}`)}`);
+  // Only primitive defaults are printable — oclif allows functions/objects
+  // as defaults, which would render as source code / [object Object].
+  const d = f.default;
+  if (
+    d !== undefined &&
+    d !== false &&
+    d !== '' &&
+    (typeof d === 'string' || typeof d === 'number' || typeof d === 'boolean')
+  ) {
+    rows.push(`  ${' '.repeat(36)} ${color.dim(`default: ${d}`)}`);
   }
   return rows;
 }

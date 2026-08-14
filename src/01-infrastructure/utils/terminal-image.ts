@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 
-type Protocol = 'iterm2' | 'kitty' | 'sixel' | 'none';
+type Protocol = 'iterm2' | 'kitty' | 'none';
 
 let cachedProtocol: Protocol | undefined;
 
@@ -44,11 +44,9 @@ export function detectProtocol(): Protocol {
     return cachedProtocol;
   }
 
-  // Sixel (mintty, mlterm, xterm with sixel)
-  if (termEnv.includes('sixel') || process.env.SIXEL_SUPPORT === '1') {
-    cachedProtocol = 'sixel';
-    return cachedProtocol;
-  }
+  // Sixel terminals (mintty, mlterm, xterm with sixel) are intentionally NOT
+  // detected: renderInline has no sixel encoder, so advertising support would
+  // just download the image and then print the "unavailable" fallback.
 
   cachedProtocol = 'none';
   return cachedProtocol;
