@@ -104,7 +104,14 @@ function sanitizeUrl(url?: string): string | undefined {
   }
 }
 
-/** Append a new entry to history. */
+/**
+ * Append a new entry to history.
+ *
+ * Load-modify-write with no cross-process lock: two CLI invocations finishing
+ * at the same moment are last-writer-wins, and one entry can be lost. Accepted
+ * for history (low stakes, rare event); the tmp+rename below still guarantees
+ * the file itself is never left corrupt.
+ */
 export function appendHistory(entry: HistoryEntry): void {
   ensureDataDir();
   // Sanitize display URLs to avoid persisting pre-signed tokens.
