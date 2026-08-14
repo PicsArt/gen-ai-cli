@@ -3,8 +3,9 @@
  * Uses raw stdin data events for full key detection.
  * Supports multi-line via Shift+Enter (VS Code terminal-setup: \x1b\r).
  */
+import { StringDecoder } from 'node:string_decoder';
 import { getColor } from '../ui-core/color.ts';
-import { visibleWidth } from '../ui-core/components/string-utils.ts';
+import { tailWindow, visibleWidth } from '../ui-core/components/string-utils.ts';
 
 export interface PromptBoxOptions {
   modelId: string;
@@ -85,9 +86,10 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
     process.stderr.write(`${rule}\n`);
 
     function render(): void {
-      // Move cursor from last content line up to first content line
-      if (prevLineCount > 1) {
-        process.stderr.write(`\x1B[${prevLineCount - 1}A`);
+      // Move cursor from the line it was left on (the previous cursor line,
+      // not necessarily the last content line) up to the first content line.
+      if (prevCursorLine > 0) {
+        process.stderr.write(`\x1B[${prevCursorLine}A`);
       }
       // Clear from first content line to end of screen
       process.stderr.write('\r\x1B[J');
@@ -97,18 +99,17 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       const prefixVis = 4 + visibleWidth(prefix);
       const textLines = userText.split('\n');
 
+      // Display-width-aware tail truncation for over-long lines; remember
+      // each line's window start so the cursor column can be computed
+      // relative to what is actually shown.
+      const windowStarts: number[] = [];
       const outputLines: string[] = [];
       for (let i = 0; i < textLines.length; i++) {
         const lineText = textLines[i];
-        if (i === 0) {
-          const avail = ruleWidth - prefixVis;
-          const display = lineText.length > avail ? lineText.slice(lineText.length - avail) : lineText;
-          outputLines.push(`${promptChar}${dimPrefix}${display}`);
-        } else {
-          const avail = ruleWidth - 4;
-          const display = lineText.length > avail ? lineText.slice(lineText.length - avail) : lineText;
-          outputLines.push(`    ${display}`);
-        }
+        const avail = Math.max(0, ruleWidth - (i === 0 ? prefixVis : 4));
+        const { display, startIndex } = tailWindow(lineText, avail);
+        windowStarts.push(startIndex);
+        outputLines.push(i === 0 ? `${promptChar}${dimPrefix}${display}` : `    ${display}`);
       }
 
       // Write content lines + bottom rule (no \n after rule)
@@ -135,12 +136,16 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       const linesFromBottom = outputLines.length - cursorLine;
       // Move up from bottom rule to cursor line (+1 for the rule itself)
       process.stderr.write(`\x1B[${linesFromBottom}A`);
-      // Position column — clamp to the rule width so a cursor past the
-      // truncated display area can't wrap onto the next terminal row.
-      const colOffset = Math.min(
-        cursorLine === 0 ? prefixVis + charsBeforeCursor : 4 + charsBeforeCursor,
-        ruleWidth - 1,
-      );
+      // Position column by display width (emoji/CJK occupy 2 cells), relative
+      // to the visible tail window when the line is truncated. Clamp to the
+      // rule width so the cursor can't wrap onto the next terminal row.
+      const lineIndent = cursorLine === 0 ? prefixVis : 4;
+      const windowStart = windowStarts[cursorLine] ?? 0;
+      const visibleBefore =
+        charsBeforeCursor > windowStart
+          ? visibleWidth((textLines[cursorLine] ?? '').slice(windowStart, charsBeforeCursor))
+          : 0;
+      const colOffset = Math.min(lineIndent + visibleBefore, ruleWidth - 1);
       process.stderr.write(`\x1B[${colOffset + 1}G`);
       prevLineCount = outputLines.length;
       prevCursorLine = cursorLine;
@@ -167,8 +172,12 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
       process.removeListener('SIGINT', onSigint);
       if (process.stdin.setRawMode) process.stdin.setRawMode(false);
       process.stdin.pause();
-      // Move past the bottom rule (cursor is on last content line)
-      process.stderr.write('\n\n');
+      // Move past the bottom rule. The cursor rests on `prevCursorLine`
+      // (0-based content line), the rule sits one row below the last content
+      // line — so descend (lines below cursor) + 1 for the rule + 1 to land
+      // on a fresh row. '\n' (not CSI B) so the screen scrolls at the bottom.
+      const linesBelowCursor = Math.max(0, prevLineCount - 1 - prevCursorLine);
+      process.stderr.write('\n'.repeat(linesBelowCursor + 2));
     }
 
     // Safety net: Ctrl+C in raw mode sends \x03 to data handler,
@@ -179,8 +188,13 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
     }
     process.on('SIGINT', onSigint);
 
+    // StringDecoder buffers a UTF-8 sequence split across chunk boundaries
+    // (large pastes) instead of decoding the halves to replacement chars.
+    const decoder = new StringDecoder('utf-8');
+
     function onData(buf: Buffer): void {
-      const str = buf.toString('utf-8');
+      const str = decoder.write(buf);
+      if (!str) return;
 
       // Any key other than Enter dismisses a pending empty-prompt warning
       // (Enter manages it itself) so the follow-up render starts clean.
@@ -230,6 +244,7 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
           }
           process.stderr.write('\r\x1B[J');
           prevLineCount = 0;
+          prevCursorLine = 0;
           process.stderr.write(`${color.warning('  prompt cannot be empty')}\n`);
           warningTimer = setTimeout(() => {
             warningTimer = null;
@@ -256,8 +271,9 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
         return;
       }
 
-      // Arrow keys (escape sequences) — move by code point
-      if (str === '\x1b[D') {
+      // Arrow keys — move by code point. Terminals send CSI sequences
+      // (\x1b[D) normally and SS3 (\x1bOD) in application-cursor-keys mode.
+      if (str === '\x1b[D' || str === '\x1bOD') {
         // Left arrow
         if (cursorPos > 0) {
           cursorPos = prevCharBoundary(userText, cursorPos);
@@ -265,7 +281,7 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
         }
         return;
       }
-      if (str === '\x1b[C') {
+      if (str === '\x1b[C' || str === '\x1bOC') {
         // Right arrow
         if (cursorPos < userText.length) {
           cursorPos = nextCharBoundary(userText, cursorPos);
@@ -273,13 +289,13 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
         }
         return;
       }
-      if (str === '\x1b[H' || str === '\x01') {
+      if (str === '\x1b[H' || str === '\x1bOH' || str === '\x01') {
         // Home or Ctrl+A
         cursorPos = 0;
         render();
         return;
       }
-      if (str === '\x1b[F' || str === '\x05') {
+      if (str === '\x1b[F' || str === '\x1bOF' || str === '\x05') {
         // End or Ctrl+E
         cursorPos = userText.length;
         render();
@@ -308,7 +324,9 @@ export function promptWithCommandBox(opts: PromptBoxOptions): Promise<string | n
 async function fallbackPrompt(): Promise<string | null> {
   const readline = await import('node:readline');
   return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    // Prompt text goes to stderr like the rest of the UI — stdout is
+    // reserved for results and may be piped.
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     rl.question('Prompt: ', (answer: string) => {
       rl.close();
       resolve(answer.trim() || null);

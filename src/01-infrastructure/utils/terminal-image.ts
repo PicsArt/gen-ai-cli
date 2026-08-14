@@ -84,10 +84,11 @@ export function renderInline(input: string | Buffer, opts?: { width?: number; he
     return;
   }
 
-  // Fallback: terminal does not support inline images — print a one-line summary.
+  // Fallback: terminal does not support inline images — print a one-line
+  // summary to stderr (UI chrome; stdout may be piped and must stay clean).
   const label = opts?.label ?? (typeof input === 'string' ? input : 'image');
   const sizeKb = (data.length / 1024).toFixed(1);
-  process.stdout.write(`${label}: ${sizeKb} KB (image preview unavailable in this terminal)\n`);
+  process.stderr.write(`${label}: ${sizeKb} KB (image preview unavailable in this terminal)\n`);
 }
 
 /** Preview an image from a URL — downloads first, then renders inline. */
