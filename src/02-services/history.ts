@@ -137,7 +137,11 @@ export function appendHistory(entry: HistoryEntry): void {
 
 /** Get the N most recent entries. */
 export function getRecentHistory(limit = 20): HistoryEntry[] {
-  return loadHistory().slice(-limit).reverse();
+  // slice(-0) === slice(0), and a negative limit flips the meaning — an
+  // unclamped 0 or negative would return (almost) the WHOLE history.
+  const n = Math.floor(limit);
+  if (!Number.isFinite(n) || n <= 0) return [];
+  return loadHistory().slice(-n).reverse();
 }
 
 /** Get the last history entry. */

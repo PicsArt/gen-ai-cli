@@ -27,7 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AuthError, ExitCode, NetworkError } from '#infra/errors/index.ts';
-import { type Credentials, getToken, loadCredentials, logout, whoami } from './auth.ts';
+import { type Credentials, getEnvCredentials, getToken, loadCredentials, logout, whoami } from './auth.ts';
 
 let tmpHome: string;
 let originalHome: string | undefined;
@@ -134,6 +134,30 @@ describe('whoami', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 /*  getToken                                                              */
 /* ─────────────────────────────────────────────────────────────────────── */
+
+describe('getEnvCredentials', () => {
+  it('returns credentials when both env vars are set', () => {
+    process.env.PICSART_ACCESS_TOKEN = 'env-tkn';
+    process.env.PICSART_USER_ID = 'env-uid';
+    const creds = getEnvCredentials();
+    expect(creds?.token).toBe('env-tkn');
+    expect(creds?.uid).toBe('env-uid');
+    // No refresh token — an env token can only be replaced, never rotated.
+    expect(creds?.refreshToken).toBe('');
+  });
+
+  it('returns null when either env var is missing', () => {
+    process.env.PICSART_ACCESS_TOKEN = 'env-tkn';
+    expect(getEnvCredentials()).toBeNull();
+    delete process.env.PICSART_ACCESS_TOKEN;
+    process.env.PICSART_USER_ID = 'env-uid';
+    expect(getEnvCredentials()).toBeNull();
+  });
+
+  it('returns null when neither is set', () => {
+    expect(getEnvCredentials()).toBeNull();
+  });
+});
 
 describe('getToken', () => {
   it('prefers env vars when both PICSART_ACCESS_TOKEN and PICSART_USER_ID are set', async () => {

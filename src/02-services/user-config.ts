@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ensureDataDir, getDataDir } from '#infra/utils/data-dir.ts';
+import { resolveUserPath } from '#services/constants.ts';
 
 export interface UserConfig {
   defaultModel?: string;
@@ -100,12 +101,15 @@ export function setConfigValue(key: string, value: string): SetConfigResult {
       return { ok: false, reason: `${key} must be an integer between 1 and 500` };
     }
     (config as Record<string, unknown>)[k] = parsed;
-  } else {
-    if (k === 'downloadDir') {
-      if (!value || !path.isAbsolute(value)) {
-        return { ok: false, reason: `downloadDir must be an absolute path` };
-      }
+  } else if (k === 'downloadDir') {
+    // Expand ~ the same way the read path does (build-output-config) —
+    // rejecting "~/Downloads" here while the reader supports it is a trap.
+    const expanded = resolveUserPath(value);
+    if (!expanded || !path.isAbsolute(expanded)) {
+      return { ok: false, reason: `downloadDir must be an absolute path` };
     }
+    (config as Record<string, unknown>)[k] = expanded;
+  } else {
     (config as Record<string, unknown>)[k] = value;
   }
 

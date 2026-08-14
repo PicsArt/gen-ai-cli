@@ -14,9 +14,11 @@ import { createColorManager } from '#infra/ui-core/color.ts';
 import { createOutputManager } from '#infra/ui-core/output.ts';
 
 const refreshAccessToken = vi.fn();
+const getEnvCredentials = vi.fn();
 
 vi.mock('#services/auth.ts', () => ({
   refreshAccessToken: (...args: unknown[]) => refreshAccessToken(...args),
+  getEnvCredentials: (...args: unknown[]) => getEnvCredentials(...args),
 }));
 
 import { createAuthenticatedFetch } from './authenticated-fetch.ts';
@@ -38,6 +40,8 @@ let originalFetch: typeof fetch;
 
 beforeEach(() => {
   refreshAccessToken.mockReset();
+  getEnvCredentials.mockReset();
+  getEnvCredentials.mockReturnValue(null);
   originalFetch = globalThis.fetch;
 });
 afterEach(() => {
@@ -211,6 +215,37 @@ describe('createAuthenticatedFetch — 401 retry', () => {
     expect(err).toBeInstanceOf(AuthError);
     expect((err as InstanceType<typeof AuthError>).exitCode).toBe(3);
     expect((err as Error).message).toMatch(/gen-ai login/i);
+  });
+
+  it('does not attempt a refresh on 401 when the token came from env vars (CI mode)', async () => {
+    // An env-provided token has no refresh token — refreshing disk creds
+    // would rotate an identity the request isn't even using. The failure
+    // must name the env var, not send the user to "gen-ai login" refresh.
+    globalThis.fetch = vi.fn(async () => new Response('', { status: 401 })) as unknown as typeof fetch;
+    getEnvCredentials.mockReturnValue({
+      token: 'env-tkn',
+      uid: 'env-uid',
+      refreshToken: '',
+      email: '',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 'env-tkn',
+      uid: 'env-uid',
+      refreshToken: '',
+      email: '',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    const { AuthError } = await import('#infra/errors/auth.ts');
+    const err = await auth('https://api.example.com/x').then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(AuthError);
+    expect((err as Error).message).toMatch(/PICSART_ACCESS_TOKEN/);
+    expect(refreshAccessToken).not.toHaveBeenCalled();
   });
 
   it('cancels the discarded 401 response body before retrying', async () => {

@@ -185,4 +185,29 @@ describe('login — OAuth callback server', () => {
     expect(res.status).toBe(400);
     await rejection;
   });
+
+  it('flushes the full error page before closing the server (provider error)', async () => {
+    // Regression: closeAllConnections() right after res.end() can destroy the
+    // socket before the browser receives the page — the error paths must wait
+    // for the response to finish, like the success path does.
+    const { promise, redirectUri } = await startLogin();
+
+    const rejection = expect(promise).rejects.toThrow(/access_denied/);
+    const res = await realFetch(`${redirectUri}/?error=access_denied`);
+    const body = await res.text();
+    expect(body).toContain('Login Failed');
+    expect(body).toContain('</html>');
+    await rejection;
+  });
+
+  it('flushes the full error page before closing the server (missing code)', async () => {
+    const { promise, redirectUri, state } = await startLogin();
+
+    const rejection = expect(promise).rejects.toThrow(/no authorization code/i);
+    const res = await realFetch(`${redirectUri}/?state=${state}`);
+    const body = await res.text();
+    expect(body).toContain('No authorization code received.');
+    expect(body).toContain('</html>');
+    await rejection;
+  });
 });

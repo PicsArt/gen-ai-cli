@@ -18,10 +18,12 @@ import { createOutputManager } from '#infra/ui-core/output.ts';
 
 const getToken = vi.fn();
 const loadCredentials = vi.fn();
+const getEnvCredentials = vi.fn();
 
 vi.mock('./auth.ts', () => ({
   getToken: (...args: unknown[]) => getToken(...args),
   loadCredentials: (...args: unknown[]) => loadCredentials(...args),
+  getEnvCredentials: (...args: unknown[]) => getEnvCredentials(...args),
   refreshAccessToken: vi.fn(),
 }));
 
@@ -39,6 +41,8 @@ let originalFetch: typeof fetch;
 beforeEach(() => {
   getToken.mockReset();
   loadCredentials.mockReset();
+  getEnvCredentials.mockReset();
+  getEnvCredentials.mockReturnValue(null);
   resetAiClientCache();
   originalFetch = globalThis.fetch;
 });
@@ -83,6 +87,58 @@ describe('getAuthenticatedFetch', () => {
 
     expect(headersByCall[0].Authorization).toBe('Bearer OLD');
     expect(headersByCall[1].Authorization).toBe('Bearer NEW');
+  });
+
+  it('uses env credentials when no credentials file exists (CI mode)', async () => {
+    // Regression: the callback used to read only the disk file, so a headless
+    // shell authenticated via PICSART_ACCESS_TOKEN/PICSART_USER_ID threw
+    // "Credentials lost during session" on the first request.
+    getToken.mockResolvedValue({ token: 'env-tkn', uid: 'env-uid' });
+    loadCredentials.mockReturnValue(null);
+    getEnvCredentials.mockReturnValue({
+      token: 'env-tkn',
+      uid: 'env-uid',
+      refreshToken: '',
+      email: '',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response('ok', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { authenticatedFetch } = await getAuthenticatedFetch();
+    const res = await authenticatedFetch('https://api.example.com/x');
+
+    expect(res.status).toBe(200);
+    expect(capturedHeaders.Authorization).toBe('Bearer env-tkn');
+    expect(capturedHeaders['user-id']).toBe('env-uid');
+  });
+
+  it('env credentials win over stale disk credentials (documented priority)', async () => {
+    getToken.mockResolvedValue({ token: 'env-tkn', uid: 'env-uid' });
+    loadCredentials.mockReturnValue({ token: 'disk-tkn', uid: 'disk-uid', expiresAt: '2099-01-01T00:00:00Z' });
+    getEnvCredentials.mockReturnValue({
+      token: 'env-tkn',
+      uid: 'env-uid',
+      refreshToken: '',
+      email: '',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response('ok', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { authenticatedFetch } = await getAuthenticatedFetch();
+    await authenticatedFetch('https://api.example.com/x');
+
+    expect(capturedHeaders.Authorization).toBe('Bearer env-tkn');
+    expect(capturedHeaders['user-id']).toBe('env-uid');
   });
 
   it('throws when credentials disappear mid-session', async () => {

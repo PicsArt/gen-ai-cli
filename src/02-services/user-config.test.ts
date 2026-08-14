@@ -145,6 +145,17 @@ describe('setConfigValue', () => {
     expect(getUserConfig().downloadDir).toBe('/abs/path');
   });
 
+  it('downloadDir expands ~ to the home dir (the read path already supports it)', () => {
+    // Regression: the writer rejected "~/Downloads" as non-absolute while the
+    // reader (build-output-config) resolves ~ happily — write/read asymmetry.
+    expect(setConfigValue('downloadDir', '~/Downloads').ok).toBe(true);
+    expect(getUserConfig().downloadDir).toBe(path.join(tmpHome, 'Downloads'));
+  });
+
+  it('downloadDir still rejects a bare relative path that starts with a tilde-less name', () => {
+    expect(setConfigValue('downloadDir', 'Downloads').ok).toBe(false);
+  });
+
   it('accepts free-form strings for other string keys', () => {
     expect(setConfigValue('defaultModel', 'flux-pro').ok).toBe(true);
     expect(getUserConfig().defaultModel).toBe('flux-pro');

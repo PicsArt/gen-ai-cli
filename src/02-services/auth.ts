@@ -37,6 +37,28 @@ function saveCredentials(creds: Credentials): void {
   fs.renameSync(tmp, credPath);
 }
 
+/**
+ * Credentials supplied via environment variables (CI / headless mode).
+ * Highest-priority auth source — every consumer of stored credentials must
+ * check this first, or env-authenticated shells (which have no credentials
+ * file on disk) break. An env token has no refresh token: it can only be
+ * replaced by the operator, never rotated by the CLI.
+ */
+export function getEnvCredentials(): Credentials | null {
+  const token = process.env.PICSART_ACCESS_TOKEN;
+  const uid = process.env.PICSART_USER_ID;
+  if (!token || !uid) return null;
+  return {
+    token,
+    refreshToken: '',
+    uid,
+    email: '',
+    // Expiry is unknowable for an operator-supplied token — the API is the
+    // authority, and a stale token surfaces as a 401.
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
 export function loadCredentials(): Credentials | null {
   const credPath = getCredentialsPath();
   try {
@@ -274,6 +296,7 @@ export async function login(): Promise<Credentials> {
         const msg = `OAuth error: ${errorParam}${errorDesc ? ` - ${errorDesc}` : ''}`;
         respondWithErrorPage(res, msg);
         clearTimeout(timeout);
+        await waitForResponseFinish(res);
         await closeServer(server);
         reject(new Error(msg));
         return;
@@ -291,6 +314,7 @@ export async function login(): Promise<Credentials> {
       if (!code) {
         respondWithErrorPage(res, 'No authorization code received.');
         clearTimeout(timeout);
+        await waitForResponseFinish(res);
         await closeServer(server);
         reject(new Error('No authorization code in callback'));
         return;
@@ -395,9 +419,8 @@ async function doRefresh(): Promise<Credentials> {
  */
 export async function getToken(): Promise<{ token: string; uid: string }> {
   // 1. CI / env override
-  const envToken = process.env.PICSART_ACCESS_TOKEN;
-  const envUid = process.env.PICSART_USER_ID;
-  if (envToken && envUid) return { token: envToken, uid: envUid };
+  const envCreds = getEnvCredentials();
+  if (envCreds) return { token: envCreds.token, uid: envCreds.uid };
 
   // 2. Cached credentials
   const creds = loadCredentials();

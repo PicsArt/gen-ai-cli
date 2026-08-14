@@ -6,7 +6,7 @@ import { catalog, createClient } from '@picsart/ai-sdk';
 import { AuthError } from '#infra/errors/auth.ts';
 import { createAuthenticatedFetch } from '#services/authenticated-fetch.ts';
 import { getApiUrl } from '#services/constants.ts';
-import { getToken, loadCredentials } from './auth.ts';
+import { getEnvCredentials, getToken, loadCredentials } from './auth.ts';
 
 const CLI_DRIVE_FOLDER = 'Gen AI';
 
@@ -18,6 +18,11 @@ const CLI_DRIVE_FOLDER = 'Gen AI';
 export async function getAuthenticatedFetch() {
   const creds = await getToken();
   const authenticatedFetch = createAuthenticatedFetch(() => {
+    // Env credentials win (CI mode) — checking disk first would ignore the
+    // documented priority and throw in headless shells, which never have a
+    // credentials file.
+    const env = getEnvCredentials();
+    if (env) return env;
     const fresh = loadCredentials();
     if (fresh) return fresh;
     throw new AuthError('Credentials lost during session. Run "gen-ai login" to re-authenticate.');
