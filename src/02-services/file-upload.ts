@@ -30,7 +30,17 @@ export interface UploadOptions {
 
 export async function uploadFile(filePath: string, opts: UploadOptions): Promise<string> {
   const absPath = path.resolve(filePath);
-  const stat = fs.statSync(absPath);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(absPath);
+  } catch {
+    throw new FileError(absPath, 'file not found or not readable');
+  }
+  if (!stat.isFile()) {
+    // existsSync-based routing lets directories through — fail with a clear
+    // message instead of a raw EISDIR from readFile.
+    throw new FileError(absPath, 'is a directory, not a file');
+  }
   if (stat.size > MAX_UPLOAD_SIZE) {
     throw new Error(`File too large (${Math.round(stat.size / 1024 / 1024)}MB). Maximum upload size is 500MB.`);
   }

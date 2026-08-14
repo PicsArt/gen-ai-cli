@@ -154,15 +154,41 @@ function closeServer(server: http.Server): Promise<void> {
   });
 }
 
+/**
+ * Wait until a response has been flushed to the socket. Closing the server
+ * with closeAllConnections() right after res.end() can destroy the socket
+ * before the browser receives the success/error page.
+ */
+function waitForResponseFinish(res: http.ServerResponse): Promise<void> {
+  if (res.writableFinished) return Promise.resolve();
+  return new Promise((resolve) => {
+    res.once('finish', resolve);
+    res.once('close', resolve);
+  });
+}
+
+/**
+ * Parse a token-endpoint response body without letting a non-JSON error page
+ * (proxy 502s return HTML) turn into a bare SyntaxError that shadows the
+ * real HTTP failure.
+ */
+async function parseTokenResponse(res: Response): Promise<TokenResponse | null> {
+  try {
+    return (await res.json()) as TokenResponse;
+  } catch {
+    return null;
+  }
+}
+
 async function exchangeCode(code: string, redirectUri: string): Promise<TokenResponse> {
   const res = await fetch(getTokenExchangeUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ code, redirect_uri: redirectUri }),
   });
-  const data = (await res.json()) as TokenResponse;
-  if (!res.ok || data.status !== 'success') {
-    throw new Error(`Token exchange failed: ${data.message ?? data.reason ?? `HTTP ${res.status}`}`);
+  const data = await parseTokenResponse(res);
+  if (!res.ok || !data || data.status !== 'success') {
+    throw new Error(`Token exchange failed: ${data?.message ?? data?.reason ?? `HTTP ${res.status}`}`);
   }
   if (!data.response.access_token || !data.response.refresh_token) {
     throw new Error('Missing tokens in exchange response');
@@ -214,9 +240,16 @@ export async function login(): Promise<Credentials> {
     );
 
     server.on('request', async (req: http.IncomingMessage, res: http.ServerResponse) => {
-      if (!req.url || handled) return;
+      if (!req.url || handled) {
+        res.writeHead(404).end();
+        return;
+      }
       const parsed = new URL(req.url, redirectUri);
-      if (parsed.pathname !== '/') return;
+      if (parsed.pathname !== '/') {
+        // Answer favicon/stray requests instead of leaving the socket hanging.
+        res.writeHead(404).end();
+        return;
+      }
 
       const code = parsed.searchParams.get('code');
       const returnedState = parsed.searchParams.get('state');
@@ -270,11 +303,13 @@ export async function login(): Promise<Credentials> {
 
         respondWithSuccessPage(res);
         clearTimeout(timeout);
+        await waitForResponseFinish(res);
         await closeServer(server);
         resolve(creds);
       } catch (err) {
         respondWithErrorPage(res, 'Token exchange failed. Please try again.');
         clearTimeout(timeout);
+        await waitForResponseFinish(res);
         await closeServer(server);
         reject(err);
       }
@@ -312,13 +347,13 @@ async function doRefresh(): Promise<Credentials> {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refresh_token: creds.refreshToken }),
   });
-  const data = (await res.json()) as TokenResponse;
+  const data = await parseTokenResponse(res);
 
-  if (!res.ok || data.status !== 'success') {
+  if (!res.ok || !data || data.status !== 'success') {
     if (res.status === 401 || res.status === 403) {
       throw new Error('Refresh token revoked. Run "gen-ai login" to re-authenticate.');
     }
-    throw new Error(`Token refresh failed: ${data.message ?? data.reason ?? `HTTP ${res.status}`}`);
+    throw new Error(`Token refresh failed: ${data?.message ?? data?.reason ?? `HTTP ${res.status}`}`);
   }
 
   const { access_token, refresh_token, expires_in, refresh_token_expires_in } = data.response;

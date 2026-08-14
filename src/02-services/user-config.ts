@@ -84,7 +84,16 @@ export function setConfigValue(key: string, value: string): SetConfigResult {
   const type = CONFIG_KEY_MAP[k];
 
   if (type === 'boolean') {
-    (config as Record<string, unknown>)[k] = value === 'true' || value === '1';
+    // Strict parse — silently mapping any unrecognized string to `false`
+    // turns a typo ("yes", "ture") into the opposite of what the user meant.
+    const lower = value.trim().toLowerCase();
+    if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on') {
+      (config as Record<string, unknown>)[k] = true;
+    } else if (lower === 'false' || lower === '0' || lower === 'no' || lower === 'off') {
+      (config as Record<string, unknown>)[k] = false;
+    } else {
+      return { ok: false, reason: `${key} must be true or false (got "${value}")` };
+    }
   } else if (type === 'number') {
     const parsed = Number.parseInt(value, 10);
     if (!Number.isFinite(parsed) || parsed < 1 || parsed > 500) {

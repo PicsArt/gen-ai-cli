@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import chalk from 'chalk';
 import { ensureDataDir, getDataDir } from '#infra/utils/data-dir.ts';
 import { getUserConfig } from '#services/user-config.ts';
-import { isRunningFromSource, performUpdate } from './self-update.ts';
+import { detectInstallMode, isRunningFromSource, performUpdate } from './self-update.ts';
 
 // Write directly to stderr — printUpdateNotice runs after `await execute(...)`
 // returns, but for built-in oclif paths (`--help`, `--version`, unknown
@@ -77,8 +77,10 @@ function isNewer(latest: string, current: string): boolean {
 }
 
 async function fetchLatestVersion(): Promise<string | null> {
-  // Binary install checks CDN; npm install checks registry.
-  const isBinary = !!process.env.GEN_AI_OCLIF_ROOT;
+  // Binary install checks CDN; npm install checks registry. Uses the same
+  // detection as the updater itself — a divergent check here would compare
+  // against a channel `gen-ai update` doesn't install from.
+  const isBinary = detectInstallMode() === 'binary';
   try {
     if (isBinary) {
       const res = await fetch(BINARY_LATEST_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -149,10 +151,15 @@ export function getAvailableUpdate(): string | null {
 export async function printUpdateNotice(opts?: { allowAutoUpdate?: boolean }): Promise<void> {
   if (!_checkPromise) return;
 
+  // Clear the race timer once settled — a dangling timeout holds the event
+  // loop open and delays natural process exit by up to NOTICE_TIMEOUT_MS.
+  let timerHandle: ReturnType<typeof setTimeout> | undefined;
   const latest = await Promise.race([
     _checkPromise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), NOTICE_TIMEOUT_MS)),
-  ]);
+    new Promise<null>((resolve) => {
+      timerHandle = setTimeout(() => resolve(null), NOTICE_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timerHandle));
 
   if (!latest) return;
 

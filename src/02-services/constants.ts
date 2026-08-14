@@ -29,7 +29,9 @@ export function getOAuthAuthUrl(): string {
   const url = new URL(getApiUrl());
   const labels = url.hostname.split('.');
   const hasApiLabel = labels.length > 2 && (labels[0] === 'api' || labels[0].startsWith('api-'));
-  const siteHost = hasApiLabel ? labels.slice(1).join('.') : url.host;
+  // Keep any explicit port when stripping the api label (self-hosted setups).
+  const strippedHost = url.port ? `${labels.slice(1).join('.')}:${url.port}` : labels.slice(1).join('.');
+  const siteHost = hasApiLabel ? strippedHost : url.host;
   return `${url.protocol}//${siteHost}/sso`;
 }
 
@@ -44,7 +46,16 @@ export function getTokenRefreshUrl(): string {
 /* ── URLs ────────────────────────────────────────────────────── */
 
 function validateUrl(url: string, name: string): string {
-  if (!url.startsWith('https://') && !url.startsWith('http://localhost')) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${name} is not a valid URL (got ${url}).`);
+  }
+  // Plain-http is allowed only for genuinely local hosts. A prefix test like
+  // startsWith('http://localhost') would also pass http://localhost.evil.com.
+  const isLocalHost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalHost)) {
     throw new Error(`${name} must use HTTPS (got ${url}). Use http://localhost for local development only.`);
   }
   return url;

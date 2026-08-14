@@ -183,6 +183,31 @@ describe('getToken', () => {
     }
   });
 
+  it('does not let a non-JSON error page (proxy 502) surface as a SyntaxError', async () => {
+    writeCreds(validCreds({ expiresAt: new Date(Date.now() - 3600_000).toISOString() }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response('<html><body>502 Bad Gateway</body></html>', {
+        status: 502,
+        headers: { 'Content-Type': 'text/html' },
+      })) as unknown as typeof fetch;
+    const origTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    try {
+      const err = await getToken().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      // Regression: res.json() used to run before the res.ok check, so the
+      // HTML body threw "Unexpected token '<'" and shadowed the HTTP 502.
+      expect(err).not.toBeInstanceOf(SyntaxError);
+      expect(err).toBeInstanceOf(AuthError);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (origTty) Object.defineProperty(process.stdin, 'isTTY', origTty);
+    }
+  });
+
   it('still surfaces AuthError (exit 3) when the auth server rejects the refresh token', async () => {
     writeCreds(validCreds({ expiresAt: new Date(Date.now() - 3600_000).toISOString() }));
     const originalFetch = globalThis.fetch;
