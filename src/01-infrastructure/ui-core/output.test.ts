@@ -88,3 +88,87 @@ describe('createOutputManager — json()', () => {
     expect(stdout).toContain('"value"');
   });
 });
+
+function makeOut(opts: Partial<Parameters<typeof createOutputManager>[0]> = {}) {
+  return createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false, ...opts });
+}
+
+describe('createOutputManager — table()', () => {
+  const rows = [
+    ['kling', 'video'],
+    ['flux', 'image'],
+  ];
+
+  it('pads columns to align and bolds headers in formatted mode', () => {
+    const out = makeOut();
+    const { stdout } = captureStreams(() => out.table(rows, ['model', 'mode']));
+    const lines = stdout.split('\n').filter(Boolean);
+    expect(lines[0]).toContain('model');
+    expect(lines[1]).toMatch(/^-+\s+-+$/); // separator under headers
+    expect(lines[2]).toContain('kling');
+    // First column padded to equal width: 'kling' and 'flux ' both 5 chars
+    expect(lines[2].indexOf('video')).toBe(lines[3].indexOf('image'));
+  });
+
+  it('emits tab-separated values in plain mode', () => {
+    const out = makeOut({ plainMode: true });
+    const { stdout } = captureStreams(() => out.table(rows, ['model', 'mode']));
+    expect(stdout).toBe('model\tmode\nkling\tvideo\nflux\timage\n');
+  });
+
+  it('omits the header block when no headers are given', () => {
+    const out = makeOut();
+    const { stdout } = captureStreams(() => out.table(rows));
+    expect(stdout.split('\n').filter(Boolean)).toHaveLength(2);
+    expect(stdout).not.toContain('---');
+  });
+
+  it('tolerates ragged rows (fewer cells than the widest row)', () => {
+    const out = makeOut();
+    const { stdout } = captureStreams(() => out.table([['a', 'b', 'c'], ['only-one']]));
+    expect(stdout).toContain('only-one');
+  });
+});
+
+describe('createOutputManager — kvPairs()', () => {
+  it('aligns values by padding keys to the widest key', () => {
+    const out = makeOut();
+    const { stdout } = captureStreams(() =>
+      out.kvPairs([
+        ['ID', 'kling-v3'],
+        ['Provider', 'kling'],
+      ]),
+    );
+    const lines = stdout.split('\n').filter(Boolean);
+    expect(lines[0].indexOf('kling-v3')).toBe(lines[1].indexOf('kling'));
+  });
+});
+
+describe('createOutputManager — card() and divider()', () => {
+  it('card() renders to stderr', () => {
+    const out = makeOut();
+    const { stdout, stderr } = captureStreams(() => out.card(['inside'], { title: 'Box' }));
+    expect(stderr).toContain('inside');
+    expect(stderr).toContain('Box');
+    expect(stdout).toBe('');
+  });
+
+  it('divider() renders to stderr with an optional label', () => {
+    const out = makeOut();
+    const { stderr } = captureStreams(() => out.divider({ label: 'Section' }));
+    expect(stderr).toContain('Section');
+  });
+});
+
+describe('createOutputManager — richTable()', () => {
+  it('renders rows using column definitions to stdout', () => {
+    const out = makeOut();
+    const { stdout } = captureStreams(() =>
+      out.richTable([{ id: 'kling', mode: 'video' }], {
+        columns: [{ key: 'id' }, { key: 'mode', label: 'Mode' }],
+      }),
+    );
+    expect(stdout).toContain('kling');
+    expect(stdout).toContain('Mode');
+  });
+});

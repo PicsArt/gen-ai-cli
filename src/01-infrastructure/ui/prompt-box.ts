@@ -16,7 +16,7 @@ export interface PromptBoxOptions {
 const HORIZONTAL = '\u2500';
 
 /** Step one code point left from `pos`, never splitting a surrogate pair. */
-function prevCharBoundary(text: string, pos: number): number {
+export function prevCharBoundary(text: string, pos: number): number {
   if (pos <= 0) return 0;
   const prev = text.charCodeAt(pos - 1);
   // Low surrogate preceded by a high surrogate \u2192 step over both units.
@@ -28,7 +28,7 @@ function prevCharBoundary(text: string, pos: number): number {
 }
 
 /** Step one code point right from `pos`, never splitting a surrogate pair. */
-function nextCharBoundary(text: string, pos: number): number {
+export function nextCharBoundary(text: string, pos: number): number {
   if (pos >= text.length) return text.length;
   const cur = text.charCodeAt(pos);
   // High surrogate followed by a low surrogate \u2192 step over both units.
@@ -44,7 +44,7 @@ function nextCharBoundary(text: string, pos: number): number {
  * normalize CRLF/CR to LF and drop all other control characters (a paste
  * arrives as one multi-byte chunk and may carry \r, tabs, ANSI noise).
  */
-function sanitizeInsertion(str: string): string {
+export function sanitizeInsertion(str: string): string {
   return str
     .replace(/\r\n?/g, '\n')
     .replace(/\t/g, ' ')

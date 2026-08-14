@@ -12,6 +12,7 @@ import {
   InsufficientCreditsError,
   isNetworkError,
   NetworkError,
+  RenderError,
   UsageError,
   ValidationError,
 } from './index.ts';
@@ -132,5 +133,23 @@ describe('isNetworkError', () => {
     expect(isNetworkError(new AuthError('Not authenticated.'))).toBe(false);
     expect(isNetworkError(undefined)).toBe(false);
     expect(isNetworkError('fetch failed')).toBe(false);
+  });
+});
+
+describe('RenderError', () => {
+  it('→ exit code 10 + stage and cause message surfaced', () => {
+    const err = new RenderError('ffmpeg', new Error('exit code 1'));
+    expect(err.exitCode).toBe(ExitCode.RENDER_ERROR);
+    expect(err.exitCode).toBe(10);
+    expect(err.stage).toBe('ffmpeg');
+    expect(err.friendlyMessage).toContain('ffmpeg');
+    expect(err.friendlyMessage).toContain('exit code 1');
+    expect(err.hint).toBeTruthy();
+    expect(err).toBeInstanceOf(CliError);
+  });
+
+  it('stringifies a non-Error cause', () => {
+    const err = new RenderError('remotion', 'bundle failed');
+    expect(err.friendlyMessage).toContain('bundle failed');
   });
 });

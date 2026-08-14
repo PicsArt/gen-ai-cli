@@ -54,8 +54,9 @@ export function renderCard(lines: string[], opts: CardOptions): string {
     totalWidth = Math.min(minInnerWidth + 2, maxWidth); // +2 for the two border chars
   }
 
-  // Inner width is total minus the two border columns
-  const innerWidth = totalWidth - 2;
+  // Inner width is total minus the two border columns (floored at 0 —
+  // a width option smaller than the borders must not crash repeat())
+  const innerWidth = Math.max(0, totalWidth - 2);
 
   // Build top border
   let topBorder: string;

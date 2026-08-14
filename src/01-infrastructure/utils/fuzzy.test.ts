@@ -23,6 +23,19 @@ describe('fuzzyScore', () => {
     const interior = fuzzyScore('l30', 'kling-v3-pro');
     expect(boundary > 0 || interior > 0).toBe(true);
   });
+
+  it('does not award the consecutive-match bonus to the very first character', () => {
+    // Regression: lastMatchIdx starts at -1, which equals ti-1 when ti === 0,
+    // faking a "consecutive" match for the first character.
+    // 'ab' vs 'axb': a@0 → 10 (match) + 15 (start boundary); b@2 → 10
+    // (non-consecutive); shortness bonus 20 - (3 - 2) = 19. Total 54 — a
+    // spurious first-char consecutive bonus would make this 59.
+    expect(fuzzyScore('ab', 'axb')).toBe(54);
+  });
+
+  it('rewards consecutive matches over spread-out matches', () => {
+    expect(fuzzyScore('abc', 'xxabcxx')).toBeGreaterThan(fuzzyScore('abc', 'xaxbxcx'));
+  });
 });
 
 describe('fuzzyFilter', () => {

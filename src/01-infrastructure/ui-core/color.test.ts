@@ -38,6 +38,38 @@ describe('createColorManager — strip on plain text', () => {
   });
 });
 
+describe('createColorManager — noColorFlag', () => {
+  it('disables color even when enabled=true', () => {
+    const c = createColorManager({ enabled: true, noColorFlag: true });
+    expect(c.enabled).toBe(false);
+    expect(c.red('text')).toBe('text');
+  });
+});
+
+describe('createColorManager — enabled helpers', () => {
+  it('link() wraps text in an OSC 8 hyperlink', () => {
+    const c = createColorManager({ enabled: true });
+    const linked = c.link('label', 'https://example.com');
+    expect(linked).toContain(']8;;https://example.com');
+    expect(linked).toContain('label');
+    expect(c.strip(linked)).toBe('label');
+  });
+
+  it('hex() produces a color wrapper that strip() can undo', () => {
+    const c = createColorManager({ enabled: true });
+    const colored = c.hex('#E859B4')('brand');
+    expect(colored).toContain('brand');
+    expect(c.strip(colored)).toBe('brand');
+  });
+
+  it('semantic helpers (success/error/warning/info) keep the text intact', () => {
+    const c = createColorManager({ enabled: true });
+    for (const helper of [c.success, c.error, c.warning, c.info] as const) {
+      expect(c.strip(helper('msg'))).toBe('msg');
+    }
+  });
+});
+
 describe('createColorManager — env auto-detection', () => {
   it('respects NO_COLOR env variable', () => {
     const orig = process.env.NO_COLOR;
