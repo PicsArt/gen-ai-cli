@@ -7,10 +7,12 @@
  *   - merges in a stable order (static wins on collision)
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
+import { Models } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ModelLike } from '#param-surface';
 import { ALIAS_MAP, loadCatalog } from '#param-surface';
 import { defineFlow } from '../../02-registry/01-flow-spec/index.ts';
+import { FLOWS } from '../../02-registry/02-flows/index.ts';
 import { composeFlagsForFlow } from './flag-set.ts';
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -177,4 +179,45 @@ describe('composeFlagsForFlow — collision precedence', () => {
     const jsonFlag = flags.json as { type?: string; allowNo?: boolean };
     expect(jsonFlag.type).toBe('boolean');
   });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Real-SDK integration — the surface each command actually ships        */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('composeFlagsForFlow — against the real SDK, for every registered flow', () => {
+  const models = Models.list();
+  const catalog = loadCatalog(models, ALIAS_MAP);
+
+  type ComposedFlag = { char?: string; aliases?: readonly string[] };
+
+  for (const [id, flow] of Object.entries(FLOWS)) {
+    it(`flow "${id}" composes a flag set with no duplicate names, chars, or aliases`, () => {
+      const flags = composeFlagsForFlow(flow, catalog, models) as Record<string, ComposedFlag>;
+      expect(Object.keys(flags).length).toBeGreaterThan(0);
+
+      // A flag NAME can never collide (object keys), but a long alias or a
+      // short char colliding with another flag makes oclif parsing
+      // ambiguous — and nothing else checks the per-flow composed set.
+      const names = new Set(Object.keys(flags));
+      const dupes: string[] = [];
+
+      const seenAliases = new Map<string, string>();
+      const seenChars = new Map<string, string>();
+      for (const [name, flag] of Object.entries(flags)) {
+        for (const alias of flag.aliases ?? []) {
+          if (names.has(alias)) dupes.push(`alias '${alias}' of --${name} shadows a flag name`);
+          const holder = seenAliases.get(alias);
+          if (holder) dupes.push(`alias '${alias}' claimed by --${holder} and --${name}`);
+          seenAliases.set(alias, name);
+        }
+        if (flag.char) {
+          const holder = seenChars.get(flag.char);
+          if (holder) dupes.push(`char '-${flag.char}' claimed by --${holder} and --${name}`);
+          seenChars.set(flag.char, name);
+        }
+      }
+      expect(dupes, dupes.join('; ')).toEqual([]);
+    });
+  }
 });

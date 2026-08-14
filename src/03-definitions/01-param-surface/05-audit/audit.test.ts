@@ -4,11 +4,14 @@
  * Pure function over a Catalog. Tests build small fixture catalogs
  * via loadCatalog() so we exercise the same plumbing the runtime uses.
  */
+import { Models } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { MODEL_BOOLEAN, MODEL_ENUM_STRING, MODEL_RANGE, MODEL_TEXT } from '../__test-utils__/models-min.ts';
 import { ALIAS_MAP } from '../01-primitives/01-aliases/index.ts';
 import { loadCatalog, type ModelLike } from '../02-catalog/index.ts';
 import { auditCatalog } from './audit.ts';
+import { findFileWiringGaps } from './file-wiring.ts';
+import { readResolverSources } from './source-reader.ts';
 
 function buildCatalog(models: readonly ModelLike[]) {
   return loadCatalog(models, ALIAS_MAP);
@@ -141,5 +144,22 @@ describe('auditCatalog — hasActionItems', () => {
     });
     expect(report.hasActionItems).toBe(true);
     expect(report.fileWiringGaps).toHaveLength(1);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Real-SDK integration                                                  */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('file-wiring — against the real SDK catalog and real pipeline sources', () => {
+  it('every file-kind descriptor is mapped and wired through resolver/execute/validate', () => {
+    // This is the regression net for "the SDK shipped a new file-kind
+    // descriptor and nobody wired it": Param Surface would still emit the
+    // flag, but the value would silently never reach the payload. Runs in
+    // `npm test`, not only via the `gen-ai dev:params` CI gate.
+    const catalog = loadCatalog(Models.list(), ALIAS_MAP);
+    const gaps = findFileWiringGaps(catalog, readResolverSources());
+    const detail = gaps.map((g) => `${g.sdkKey} → ${g.unmappedKey ? 'NO MAPPING' : `files.${g.filesKey}`}`).join('; ');
+    expect(gaps, `Unwired file slots: ${detail}`).toEqual([]);
   });
 });

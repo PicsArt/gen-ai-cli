@@ -104,11 +104,20 @@ function stepForSurface(surface: ParamSurface): WizardStep | undefined {
   return descriptorToStep(surface.key, labelFromSurface(surface), surface.descriptor, required);
 }
 
+/**
+ * Same labelling rule as flag-schema's `describeFlag`: exactly one agreed
+ * per-model label is authoritative; zero or disagreeing labels collapse to
+ * a neutral name humanized from the user-facing flag, so walk order never
+ * picks the wording. Keeps `--help` text and wizard prompts consistent.
+ */
 function labelFromSurface(surface: ParamSurface): string {
+  const distinct = new Set<string>();
   for (const label of surface.perModelLabels.values()) {
-    if (label && label.trim().length > 0) return label;
+    const trimmed = label?.trim();
+    if (trimmed) distinct.add(trimmed);
   }
-  return surface.key;
+  if (distinct.size === 1) return [...distinct][0];
+  return humanizeKey(surface.flag);
 }
 
 /* ─────────────────────────────────────────────────────────────────────── */

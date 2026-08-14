@@ -6,10 +6,12 @@
  *   - order: [picker, ...descriptors, ...static]
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
+import { Models } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ModelLike } from '#param-surface';
 import { ALIAS_MAP, loadCatalog } from '#param-surface';
 import { defineFlow } from '../../02-registry/01-flow-spec/index.ts';
+import { FLOWS } from '../../02-registry/02-flows/index.ts';
 import { composeWizardForFlow } from './wizard-flow.ts';
 
 function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
@@ -203,4 +205,25 @@ describe('composeWizardForFlow — order', () => {
     expect(steps.find((s) => s.key === 'downloadPath')).toBeUndefined();
     expect(steps.find((s) => s.key === 'proceed')).toBeUndefined();
   });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Real-SDK integration — the wizard each flow actually ships            */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('composeWizardForFlow — against the real SDK, for every registered flow', () => {
+  const models = Models.list();
+  const catalog = loadCatalog(models, ALIAS_MAP);
+
+  for (const [id, flow] of Object.entries(FLOWS)) {
+    it(`flow "${id}" composes steps with unique answer keys`, () => {
+      // Steps land in one flat answers object keyed by step.key — a
+      // duplicate key means one answer silently overwrites another
+      // (the '$model' vs SDK-'model' class of bug).
+      const steps = composeWizardForFlow(flow, catalog, models);
+      const keys = steps.map((s) => s.key);
+      const dupes = keys.filter((k, i) => keys.indexOf(k) !== i);
+      expect(dupes, `duplicate step keys: ${dupes.join(', ')}`).toEqual([]);
+    });
+  }
 });

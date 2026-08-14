@@ -25,7 +25,7 @@ import {
   MODEL_TEXT,
   type ModelLike,
 } from '../__test-utils__/models-min.ts';
-import { ALIAS_MAP } from '../01-primitives/01-aliases/index.ts';
+import { ALIAS_MAP, EXPECTED_SDK_GAPS } from '../01-primitives/01-aliases/index.ts';
 import { getCatalog, loadCatalog, ParamConflictError } from './catalog.ts';
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -354,50 +354,28 @@ describe('loadCatalog — object descriptor', () => {
 describe('against the real SDK catalog', () => {
   const realCatalog = loadCatalog(Models.list(), ALIAS_MAP);
 
-  /**
-   * ALIAS_MAP keys that intentionally don't appear in the SDK catalog. Two
-   * reasons a key may belong here:
-   *
-   *   1. CLI built-in — `model` picks which SDK model to use; it's not a
-   *      paramConfig field. The alias gives it `-m` short.
-   *
-   *   2. Known SDK gap — the SDK's `buildPayload` reads `ctx.<key>` but
-   *      no model's paramConfig declares `<key>` as a descriptor. CLI
-   *      ships the flag for scripted users; wizard support is blocked
-   *      until the SDK adds the descriptor. Gaps are filed against the
-   *      `pa-gen-ai-sdk` repo, which owns the catalog.
-   *
-   * When the SDK closes a gap, remove the corresponding entry from this
-   * set. Any NEW orphan in ALIAS_MAP (e.g. a typo'd alias key) shows up
-   * here as an unexpected failure.
-   */
-  const EXPECTED_ORPHAN_ALIASES = new Set([
-    'externalTaskId', // SDK gap (Kling video)
-    'soundEffectPrompt', // SDK gap (Kling V2A)
-    'bgmPrompt', // SDK gap (Kling V2A)
-    'asmrMode', // SDK gap (Kling V2A)
-  ]);
+  // The exemption list lives next to ALIAS_MAP (single source of truth,
+  // also consumed by `gen-ai dev:params`). See EXPECTED_SDK_GAPS in
+  // 01-primitives/01-aliases/aliases.ts for what qualifies as a gap.
 
   it('every non-exempt ALIAS_MAP key maps to a real SDK descriptor', () => {
     const orphans: string[] = [];
     for (const key of Object.keys(ALIAS_MAP)) {
-      if (EXPECTED_ORPHAN_ALIASES.has(key)) continue;
+      if (EXPECTED_SDK_GAPS.has(key)) continue;
       if (!realCatalog.bySdkKey.has(key)) orphans.push(key);
     }
     expect(orphans, `Unexpected orphan aliases: ${orphans.join(', ')}`).toEqual([]);
   });
 
-  it('the EXPECTED_ORPHAN_ALIASES exemption list itself does not grow stale', () => {
+  it('the EXPECTED_SDK_GAPS exemption list itself does not grow stale', () => {
     // If a previously-exempt key now appears in the SDK catalog (the SDK
     // closed the gap), the exemption is no longer needed and should be
     // removed. This test catches the situation.
     const closedGaps: string[] = [];
-    for (const key of EXPECTED_ORPHAN_ALIASES) {
+    for (const key of EXPECTED_SDK_GAPS) {
       if (realCatalog.bySdkKey.has(key)) closedGaps.push(key);
     }
-    expect(closedGaps, `SDK closed these gaps — remove from EXPECTED_ORPHAN_ALIASES: ${closedGaps.join(', ')}`).toEqual(
-      [],
-    );
+    expect(closedGaps, `SDK closed these gaps — remove from EXPECTED_SDK_GAPS: ${closedGaps.join(', ')}`).toEqual([]);
   });
 
   it('exposes a non-empty catalog', () => {
