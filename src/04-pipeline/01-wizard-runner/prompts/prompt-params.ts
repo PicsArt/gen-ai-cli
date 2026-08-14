@@ -84,12 +84,18 @@ export function openEditorForPrompt(): string | null {
  *   - `key === 'prompt'`     → owned by the prompt-step (rich command box)
  *   - keys already present in `ctx` (prefilled from flags)
  *
+ * `previousValues` (edit mode — the confirm step's "Edit parameters" loop)
+ * seeds each step's default with the user's PREVIOUS choice, so pressing
+ * Enter through the wizard keeps every value instead of silently resetting
+ * to descriptor defaults.
+ *
  * Returns the answers as a `Partial<GenerationContext>`. Sub-wizard
  * cancellation propagates as `BACK`; `runWizard` handles `CANCEL`.
  */
 export async function promptForParams(
   model: ModelDefinition,
   ctx: Readonly<Partial<GenerationContext>>,
+  previousValues?: Record<string, unknown>,
 ): Promise<StepResult<Partial<GenerationContext>>> {
   const schemaSteps = generateWizardStepsFromCatalog(filterCatalog(getCatalog(), new Set([model.id])));
 
@@ -98,7 +104,7 @@ export async function promptForParams(
     if (s.kind === 'file') continue;
     if (s.key === 'prompt') continue;
     if ((ctx as Record<string, unknown>)[s.key] != null) continue;
-    const step = buildRunnerStep(s);
+    const step = buildRunnerStep(s, previousValues?.[s.key]);
     if (step !== undefined) steps.push(step);
   }
 
@@ -118,19 +124,24 @@ export async function promptForParams(
 /*  Schema step → runner step (kind dispatcher)                           */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-function buildRunnerStep(s: SchemaStep): WizardStep | undefined {
+function buildRunnerStep(s: SchemaStep, previous?: unknown): WizardStep | undefined {
   switch (s.kind) {
     case 'select': {
       if (s.choices.length === 0) return undefined;
       const ids = s.choices.map((c) => c.id) as (string | number)[];
-      const def = s.default as string | number | undefined;
+      const prev = previous as string | number | undefined;
+      const def = prev !== undefined && ids.includes(prev) ? prev : (s.default as string | number | undefined);
       return { id: s.key, run: () => pickOption(s.label, ids, def) };
     }
 
-    case 'confirm':
-      return { id: s.key, run: () => confirmWithNav({ message: s.label, default: s.default }) };
+    case 'confirm': {
+      const def = typeof previous === 'boolean' ? previous : s.default;
+      return { id: s.key, run: () => confirmWithNav({ message: s.label, default: def }) };
+    }
 
     case 'text':
+      // Blank answers resolve to undefined → the caller's merge keeps
+      // whatever value (flag/previous) it already has for this key.
       return {
         id: s.key,
         run: async () => {
@@ -139,23 +150,30 @@ function buildRunnerStep(s: SchemaStep): WizardStep | undefined {
         },
       };
 
-    case 'catalog':
+    case 'catalog': {
       // Free-string id served by a platform catalog task (voiceId, videoId).
-      // Ask as text; blank falls back to the descriptor default.
+      // Ask as text; blank falls back to the previous value, then default.
+      const fallback = previous !== undefined ? previous : s.default;
       return {
         id: s.key,
         run: async () => {
-          const hint = s.default !== undefined ? ` (default ${s.default})` : '';
+          const hint = fallback !== undefined ? ` (default ${fallback})` : '';
           const val = await askWithNav(`${s.label}${hint}`);
-          return val || s.default;
+          return val || fallback;
         },
       };
+    }
 
-    case 'number':
-      return { id: s.key, run: () => askNumeric(s.label, s.min, s.max, s.default) };
+    case 'number': {
+      const def = typeof previous === 'number' ? previous : s.default;
+      return { id: s.key, run: () => askNumeric(s.label, s.min, s.max, def) };
+    }
 
-    case 'object':
-      return { id: s.key, run: () => runObjectStep(s) };
+    case 'object': {
+      const prevItems =
+        Array.isArray(previous) && previous.length > 0 ? (previous as Record<string, unknown>[]) : undefined;
+      return { id: s.key, run: () => runObjectStep(s, prevItems) };
+    }
 
     case 'file':
       return undefined; // owned by the file-step
@@ -169,14 +187,18 @@ async function askNumeric(
   defaultVal?: number,
 ): Promise<NavResult<number | undefined>> {
   const hint = `${min}–${max}${defaultVal != null ? `, default ${defaultVal}` : ''}`;
-  const val = await askWithNav(`${label} (${hint})`);
-  if (!val) return defaultVal;
-  const num = Number(val);
-  if (Number.isNaN(num) || num < min || num > max) {
-    getOutput().info(`Invalid: must be ${min}–${max}.${defaultVal != null ? ` Using default ${defaultVal}.` : ''}`);
-    return defaultVal;
+  const MAX_ATTEMPTS = 3;
+  // Re-ask on invalid input — silently substituting the default would turn
+  // a typo into a wrong-but-valid generation. Blank = accept the default.
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const val = await askWithNav(`${label} (${hint})`);
+    if (!val) return defaultVal;
+    const num = Number(val);
+    if (!Number.isNaN(num) && num >= min && num <= max) return num;
+    getOutput().info(`Invalid: must be ${min}–${max}.`);
   }
-  return num;
+  getOutput().info(defaultVal != null ? `Using default ${defaultVal}.` : 'Skipping.');
+  return defaultVal;
 }
 
 /**
@@ -202,10 +224,20 @@ async function askNumeric(
  */
 async function runObjectStep(
   s: Extract<SchemaStep, { kind: 'object' }>,
+  previous?: Record<string, unknown>[],
 ): Promise<NavResult<Record<string, unknown>[] | undefined>> {
-  // Optional opt-in gate — answers the user's "why am I being forced
-  // to provide voice references for a simple video?" complaint.
-  if (s.required !== true) {
+  // Edit mode with existing items: offer to keep them. Declining the
+  // replace-gate returns the PREVIOUS items — never silently drops them.
+  if (previous) {
+    const replace = await confirmWithNav({
+      message: `Replace ${s.label}? (currently ${previous.length} item${previous.length === 1 ? '' : 's'})`,
+      default: false,
+    });
+    if (replace === BACK || replace === CANCEL) return replace;
+    if (!replace) return previous;
+  } else if (s.required !== true) {
+    // Optional opt-in gate — answers the user's "why am I being forced
+    // to provide voice references for a simple video?" complaint.
     const useIt = await confirmWithNav({ message: `Add ${s.label}? (optional)`, default: false });
     if (useIt === BACK || useIt === CANCEL) return useIt;
     if (!useIt) return [];
@@ -241,8 +273,10 @@ async function runObjectStep(
 export async function prefetchDriveMedia(model: ModelDefinition): Promise<DrivePrefetch> {
   const prefetch: DrivePrefetch = {};
   const imgParam = Models.getFileParam(model.id, 'imageUrls');
-  const vidParam = Models.getFileParam(model.id, 'videoUrl');
-  const audParam = Models.getFileParam(model.id, 'audioUrl');
+  // Array slots (videoUrls / audioUrls) want Drive media too — seedance
+  // extend and seed-audio models declare only those.
+  const vidParam = Models.getFileParam(model.id, 'videoUrl') ?? Models.getFileParam(model.id, 'videoUrls');
+  const audParam = Models.getFileParam(model.id, 'audioUrl') ?? Models.getFileParam(model.id, 'audioUrls');
 
   try {
     const [images, videos, audios] = await Promise.all([
@@ -290,6 +324,50 @@ async function promptSingleMediaInput(
   return type === 'video' ? { videoUrl: files[0] } : { audioUrl: files[0] };
 }
 
+/**
+ * Array file slots — `videoUrls` / `audioUrls`. Models like
+ * seedance-2.0-video-extend declare their ONLY file input this way (no
+ * `videoUrl`), so without this the wizard can't collect their inputs at all.
+ * Asks up to `max` files, stopping when the user picks nothing.
+ */
+async function promptMediaUrlsInputs(
+  type: 'video' | 'audio',
+  model: ModelDefinition,
+  ctx: Readonly<Partial<GenerationContext>>,
+  drive?: DrivePrefetch,
+): Promise<Partial<GenerationContext>> {
+  const key = type === 'video' ? 'videoUrls' : 'audioUrls';
+  const param = Models.getFileParam(model.id, key);
+  if (!param) return {};
+
+  const existing = type === 'video' ? ctx.videoUrls : ctx.audioUrls;
+  if (existing?.length) return {};
+
+  const exts = type === 'video' ? VIDEO_EXTS : AUDIO_EXTS;
+  const driveItems = type === 'video' ? drive?.videos : drive?.audios;
+  const baseLabel = param.label || (type === 'video' ? 'Video' : 'Audio');
+  const max = Math.max(1, param.max || 1);
+
+  const values: string[] = [];
+  for (let i = 0; i < max; i++) {
+    const isRequired = !!param.required && i === 0;
+    const counter = max > 1 ? ` ${i + 1} of ${max}` : '';
+    const files = await promptFileInput({
+      label: `${baseLabel}${counter} (${isRequired ? 'required' : 'optional'})`,
+      required: isRequired,
+      exts,
+      mediaType: type,
+      drive: drive ? { items: driveItems } : undefined,
+    });
+    if (files.length === 0) break;
+    values.push(...files.slice(0, max - values.length));
+    if (values.length >= max) break;
+  }
+
+  if (values.length === 0) return {};
+  return type === 'video' ? { videoUrls: values } : { audioUrls: values };
+}
+
 export async function promptForInputFiles(
   model: ModelDefinition,
   ctx: Readonly<Partial<GenerationContext>>,
@@ -301,15 +379,31 @@ export async function promptForInputFiles(
   const efP = Models.getFileParam(model.id, 'endFrame');
   const vidP = Models.getFileParam(model.id, 'videoUrl');
   const audP = Models.getFileParam(model.id, 'audioUrl');
+  // Array slots — some models (seedance video-extend, seed-audio) declare
+  // their media input ONLY through these.
+  const vidsP = Models.getFileParam(model.id, 'videoUrls');
+  const audsP = Models.getFileParam(model.id, 'audioUrls');
   // Treat startFrame as an image input for prompting purposes
   const effectiveImgP = imgP ?? sfP;
-  if (!effectiveImgP && !vidP && !audP) return {};
+  if (!effectiveImgP && !vidP && !audP && !vidsP && !audsP) return {};
 
   const hasOptionalFiles =
-    (effectiveImgP && !effectiveImgP.required) || (vidP && !vidP.required) || (audP && !audP.required);
-  const hasRequiredFiles = effectiveImgP?.required || vidP?.required || audP?.required;
+    (effectiveImgP && !effectiveImgP.required) ||
+    (vidP && !vidP.required) ||
+    (audP && !audP.required) ||
+    (vidsP && !vidsP.required) ||
+    (audsP && !audsP.required);
+  const hasRequiredFiles =
+    effectiveImgP?.required || vidP?.required || audP?.required || vidsP?.required || audsP?.required;
   const isTextPrimary = model.inputType.startsWith('t');
-  const ctxHasAnyFile = Boolean(ctx.imageUrls?.length || ctx.startFrame || ctx.videoUrl || ctx.audioUrl);
+  const ctxHasAnyFile = Boolean(
+    ctx.imageUrls?.length ||
+      ctx.startFrame ||
+      ctx.videoUrl ||
+      ctx.audioUrl ||
+      ctx.videoUrls?.length ||
+      ctx.audioUrls?.length,
+  );
 
   // If model has both text-only and file-input modes, let user choose —
   // unless intent is already unambiguous from CLI flags (--prompt given
@@ -369,6 +463,12 @@ export async function promptForInputFiles(
   }
   if (audP) {
     Object.assign(updates, await promptSingleMediaInput('audio', model, ctx, drive));
+  }
+  if (vidsP) {
+    Object.assign(updates, await promptMediaUrlsInputs('video', model, ctx, drive));
+  }
+  if (audsP) {
+    Object.assign(updates, await promptMediaUrlsInputs('audio', model, ctx, drive));
   }
 
   return updates;

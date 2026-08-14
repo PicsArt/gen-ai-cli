@@ -4,6 +4,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { isIP } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { uploadFile } from '#services/file-upload.ts';
@@ -11,8 +12,15 @@ import { uploadFile } from '#services/file-upload.ts';
 let ffmpegChecked = false;
 let ffmpegAvailable = false;
 
-/** Block SSRF: only allow https URLs pointing to public hosts. */
-function isSafeUrl(raw: string): boolean {
+/**
+ * Block SSRF: only allow https URLs pointing to public hosts.
+ *
+ * The private-range prefixes are applied ONLY when the host is an actual
+ * IP literal — plain startsWith on a hostname would blocklist real domains
+ * like `fcbarcelona.com` (fc00::/7 prefix) or `10.media.example.com`.
+ * Exported for testing.
+ */
+export function isSafeUrl(raw: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -22,26 +30,33 @@ function isSafeUrl(raw: string): boolean {
   if (parsed.protocol !== 'https:') return false;
 
   // Strip brackets from IPv6 addresses — URL.hostname returns e.g. "[::ffff:7f00:1]"
-  const host = parsed.hostname.replace(/^\[|\]$/g, '');
-  if (
-    host === 'localhost' ||
-    host === '0.0.0.0' ||
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost') return false;
+
+  const ipVersion = isIP(host);
+  if (ipVersion === 0) return true; // regular hostname
+
+  if (ipVersion === 4) {
+    return !(
+      host === '0.0.0.0' ||
+      host.startsWith('0.') ||
+      host.startsWith('127.') ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      host.startsWith('169.254.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)
+    );
+  }
+
+  // IPv6: loopback, link-local, unique-local, IPv4-mapped
+  return !(
     host === '::1' ||
-    host.startsWith('127.') ||
-    host.startsWith('10.') ||
-    host.startsWith('192.168.') ||
-    host.startsWith('169.254.') ||
     host.startsWith('fe80') ||
-    host.startsWith('0.') ||
-    host.startsWith('::ffff:') ||
     host.startsWith('fc') ||
     host.startsWith('fd') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)
-  )
-    return false;
-
-  return true;
+    host.startsWith('::ffff:')
+  );
 }
 
 function hasFfmpeg(): boolean {

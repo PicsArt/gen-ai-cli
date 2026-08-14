@@ -29,7 +29,7 @@ export interface HistoryEntry {
   /** All result URLs when count > 1 (multi-result generation). */
   resultUrls?: string[];
   durationMs?: number;
-  status: 'completed' | 'failed' | 'timeout';
+  status: 'completed' | 'failed' | 'timeout' | 'cancelled';
   error?: string;
 }
 

@@ -133,7 +133,16 @@ export function displayFailedResult(result: ExecutionResult, options: DisplayOpt
 }
 
 /** Display a cancelled result. */
-export function displayCancelledResult(_result: ExecutionResult, _options: DisplayOptions, deps: OutputDeps): void {
+export function displayCancelledResult(result: ExecutionResult, options: DisplayOptions, deps: OutputDeps): void {
+  if (options.jsonMode) {
+    deps.out.json({
+      status: 'cancelled',
+      model: result.model.id,
+      durationMs: result.durationMs,
+      ...(result.taskId ? { taskId: result.taskId } : {}),
+    });
+    return;
+  }
   deps.out.info('Generation cancelled');
 }
 

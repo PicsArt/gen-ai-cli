@@ -22,7 +22,9 @@ export function buildEntryDetailLines(entry: HistoryEntry, color: ColorManager):
   const statusLabel =
     entry.status === 'completed'
       ? color.green('completed')
-      : color.red(entry.status === 'timeout' ? 'timeout' : 'failed');
+      : entry.status === 'cancelled'
+        ? color.dim('cancelled')
+        : color.red(entry.status === 'timeout' ? 'timeout' : 'failed');
 
   const pairs: [string, string][] = [];
   if (entry.id) pairs.push(['Id', entry.id]);

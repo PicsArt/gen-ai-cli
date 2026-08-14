@@ -80,4 +80,18 @@ describe('runParamsStep — edit mode', () => {
     const out = await runParamsStep(deps, model, {}, { c: 3, b: 99 });
     expect(out).toEqual({ a: 1, b: 99, c: 3, d: 4 });
   });
+
+  // Regression: edit mode used to re-ask every param with the model's
+  // DESCRIPTOR defaults — a user who set duration=10 and re-entered edit
+  // to change one field got everything else silently reset. The wizard
+  // must receive the previous values so it can show them as defaults.
+  it('passes previousParams to promptForParams as the wizard defaults', async () => {
+    ModelMock.mockReset().mockImplementation(() => ({ params: () => ({ getDefaults: () => ({}) }) }));
+    buildParamsFromFlagsMock.mockReset().mockReturnValue({});
+    promptForParamsMock.mockReset().mockResolvedValue({});
+
+    await runParamsStep(deps, model, {}, { duration: 10, aspectRatio: '9:16' });
+
+    expect(promptForParamsMock).toHaveBeenCalledWith(model, expect.anything(), { duration: 10, aspectRatio: '9:16' });
+  });
 });

@@ -181,10 +181,12 @@ describe('handleOutput — history', () => {
     expect((entry as { status: string }).status).toBe('failed');
   });
 
-  it('records history on cancellation as status=failed (per impl)', async () => {
+  // A user cancel is not a failure — `gen-ai history` must not report it
+  // as one.
+  it('records history on cancellation as status=cancelled', async () => {
     await handleOutput(done({ status: 'cancelled', url: undefined }), cfg(), deps);
     const [entry] = appendHistoryMock.mock.calls[0];
-    expect((entry as { status: string }).status).toBe('failed');
+    expect((entry as { status: string }).status).toBe('cancelled');
   });
 
   it('records history on timeout as status=timeout', async () => {

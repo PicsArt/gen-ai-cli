@@ -95,6 +95,11 @@ export async function resolveInteractive(
         'end-frame': flags['end-frame'] as string | undefined,
         video: flags.video as string | undefined,
         audio: flags.audio as string | undefined,
+        'video-urls': flags['video-urls'] as string[] | undefined,
+        'audio-urls': flags['audio-urls'] as string[] | undefined,
+        'static-mask': flags['static-mask'] as string | undefined,
+        'scene-image': flags['scene-image'] as string | undefined,
+        'style-image': flags['style-image'] as string | undefined,
         prompt: typeof flags.prompt === 'string' ? flags.prompt : undefined,
       };
 

@@ -182,6 +182,20 @@ describe('displayCancelledResult', () => {
     );
     expect(calls.info[0]).toContain('cancelled');
   });
+
+  // --json consumers parse stdout — a cancel must produce a machine-readable
+  // payload like failed/timeout do, not a bare human info line.
+  it('jsonMode → writes { status: "cancelled", model, durationMs }', () => {
+    const { calls, deps } = makeDeps();
+    displayCancelledResult(
+      done({ status: 'cancelled', taskId: 't-9' }),
+      { jsonMode: true, quietMode: false, plainMode: false },
+      deps,
+    );
+    expect(calls.json.length).toBe(1);
+    expect(calls.json[0]).toMatchObject({ status: 'cancelled', model: 'm', durationMs: 1500 });
+    expect(calls.info.length).toBe(0);
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */

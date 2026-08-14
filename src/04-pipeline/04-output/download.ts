@@ -16,9 +16,22 @@ export async function downloadToDir(url: string, dir: string, deps: OutputDeps):
   const rawName = path.basename(parsed.pathname) || 'output';
   // eslint-disable-next-line no-control-regex
   const filename = rawName.replace(/[<>:"|?*\u0000-\u001f]/g, '_') || 'output';
-  const outPath = path.join(resolvedDir, filename);
-
   fs.mkdirSync(resolvedDir, { recursive: true });
+
+  // Multi-result generations (and re-runs into the same dir) often share a
+  // URL basename — never clobber an existing file, suffix instead.
+  let outPath = path.join(resolvedDir, filename);
+  if (fs.existsSync(outPath)) {
+    const ext = path.extname(filename);
+    const stem = filename.slice(0, filename.length - ext.length);
+    for (let i = 1; ; i++) {
+      const candidate = path.join(resolvedDir, `${stem}-${i}${ext}`);
+      if (!fs.existsSync(candidate)) {
+        outPath = candidate;
+        break;
+      }
+    }
+  }
   deps.out.info(`Downloading to ${outPath}...`);
 
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });

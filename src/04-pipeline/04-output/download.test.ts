@@ -75,6 +75,27 @@ describe('downloadToDir', () => {
     expect(deps.out.success).toHaveBeenCalledWith(expect.stringMatching(/Saved/));
   });
 
+  // Multi-result generations (and re-runs into the same dir) often share a
+  // URL basename — the second download must not clobber the first.
+  it('does not overwrite an existing file with the same basename', async () => {
+    let body = 0;
+    globalThis.fetch = vi.fn(async () => new Response(`content-${++body}`, { status: 200 })) as unknown as typeof fetch;
+
+    const first = await downloadToDir('https://example.com/a/photo.png', tmpDir, deps);
+    const second = await downloadToDir('https://example.com/b/photo.png', tmpDir, deps);
+
+    expect(second).not.toBe(first);
+    expect(fs.readFileSync(first, 'utf-8')).toBe('content-1');
+    expect(fs.readFileSync(second, 'utf-8')).toBe('content-2');
+  });
+
+  it('keeps the extension when de-duplicating filenames', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('x', { status: 200 })) as unknown as typeof fetch;
+    await downloadToDir('https://example.com/a/photo.png', tmpDir, deps);
+    const second = await downloadToDir('https://example.com/b/photo.png', tmpDir, deps);
+    expect(path.extname(second)).toBe('.png');
+  });
+
   it('expands ~ in the destination directory', async () => {
     globalThis.fetch = vi.fn(async () => new Response('x', { status: 200 })) as unknown as typeof fetch;
     // Set HOME → tmpDir so "~/sub" resolves under tmp

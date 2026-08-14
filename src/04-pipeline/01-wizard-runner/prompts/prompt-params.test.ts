@@ -108,12 +108,30 @@ describe('promptForParams — scalar dispatch', () => {
     expect(out).toEqual({ cfgScale: 0.7 });
   });
 
-  it('rejects out-of-range number input and falls back to default', async () => {
+  // A typo must not silently become a wrong-but-valid generation — the
+  // wizard re-asks instead of substituting the default.
+  it('re-asks on out-of-range number input and accepts the corrected value', async () => {
     schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
-    askWithNavMock.mockResolvedValue('7.5');
+    askWithNavMock.mockResolvedValueOnce('7.5').mockResolvedValueOnce('0.7');
+    const out = await promptForParams(model, emptyCtx);
+    expect(out).toEqual({ cfgScale: 0.7 });
+    expect(askWithNavMock).toHaveBeenCalledTimes(2);
+    expect(outputInfoMock).toHaveBeenCalled();
+  });
+
+  it('falls back to the default after repeated invalid number input', async () => {
+    schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
+    askWithNavMock.mockResolvedValue('not-a-number');
     const out = await promptForParams(model, emptyCtx);
     expect(out).toEqual({ cfgScale: 0.5 });
-    expect(outputInfoMock).toHaveBeenCalled();
+  });
+
+  it('blank number input immediately uses the default', async () => {
+    schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
+    askWithNavMock.mockResolvedValue('');
+    const out = await promptForParams(model, emptyCtx);
+    expect(out).toEqual({ cfgScale: 0.5 });
+    expect(askWithNavMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -263,5 +281,73 @@ describe('promptForParams — object descriptors', () => {
     askWithNavMock.mockResolvedValueOnce('0'); // user types 0 at "how many?"
     const out = await promptForParams(model, emptyCtx);
     expect((out as Record<string, unknown>).multiPrompt).toEqual([]);
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────── */
+/*  Previous values (edit mode)                                     */
+/*                                                                  */
+/*  When the confirm step loops back with "Edit parameters", the    */
+/*  wizard must present the user's PREVIOUS choices as defaults —   */
+/*  not the model's descriptor defaults. Pressing Enter through     */
+/*  the steps must keep every previously chosen value.              */
+/* ──────────────────────────────────────────────────────────────── */
+
+describe('promptForParams — previous values as defaults (edit mode)', () => {
+  it('select: passes the previous value as the select default', async () => {
+    schemaStepsMock.value = [
+      {
+        kind: 'select',
+        key: 'aspectRatio',
+        label: 'Aspect Ratio',
+        default: '16:9',
+        choices: [
+          { id: '16:9', label: '16:9' },
+          { id: '9:16', label: '9:16' },
+        ],
+      },
+    ];
+    selectWithNavMock.mockResolvedValue('9:16');
+
+    await promptForParams(model, emptyCtx, { aspectRatio: '9:16' });
+
+    expect(selectWithNavMock).toHaveBeenCalledWith(expect.objectContaining({ default: '9:16' }));
+  });
+
+  it('number: blank answer keeps the previous value, not the descriptor default', async () => {
+    schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
+    askWithNavMock.mockResolvedValue('');
+
+    const out = await promptForParams(model, emptyCtx, { cfgScale: 0.9 });
+
+    expect(out).toEqual({ cfgScale: 0.9 });
+  });
+
+  it('confirm: passes the previous boolean as the confirm default', async () => {
+    schemaStepsMock.value = [{ kind: 'confirm', key: 'generateAudio', label: 'Generate audio?', default: false }];
+    confirmWithNavMock.mockResolvedValue(true);
+
+    await promptForParams(model, emptyCtx, { generateAudio: true });
+
+    expect(confirmWithNavMock).toHaveBeenCalledWith(expect.objectContaining({ default: true }));
+  });
+
+  it('object: declining the replace-gate keeps the previous items', async () => {
+    schemaStepsMock.value = [
+      {
+        kind: 'object',
+        key: 'multiPrompt',
+        label: 'Multi-Shot Prompts',
+        required: false,
+        arrayMax: 5,
+        fields: [{ kind: 'text', key: 'prompt', label: 'Shot prompt' }],
+      },
+    ];
+    const previous = [{ prompt: 'wide shot', duration: 5 }];
+    confirmWithNavMock.mockResolvedValue(false); // "keep current"
+
+    const out = await promptForParams(model, emptyCtx, { multiPrompt: previous });
+
+    expect(out).toEqual({ multiPrompt: previous });
   });
 });

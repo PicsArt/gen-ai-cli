@@ -33,10 +33,18 @@ export async function runConfirmStep(
     pairs.push(['prompt', truncated]);
   }
 
+  // Every slot the pipeline can carry — the user confirms what they see.
   const allFiles: string[] = [
     ...(files.images ?? []),
+    ...(files.startFrame ? [files.startFrame] : []),
+    ...(files.endFrame ? [files.endFrame] : []),
     ...(files.video ? [files.video] : []),
     ...(files.audio ? [files.audio] : []),
+    ...(files.videos ?? []),
+    ...(files.audios ?? []),
+    ...(files.staticMask ? [files.staticMask] : []),
+    ...(files.sceneImage ? [files.sceneImage] : []),
+    ...(files.styleImage ? [files.styleImage] : []),
   ];
   if (allFiles.length > 0) {
     pairs.push(['files', allFiles.join(', ')]);

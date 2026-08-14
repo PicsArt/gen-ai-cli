@@ -19,7 +19,7 @@ import { getAuthenticatedFetch } from '#services/client.ts';
 import { resolveAllFiles } from '#services/file-upload.ts';
 import { resolveScripted } from './scripted/resolver.ts';
 import { finalizeTextAnalysisInputs } from './text-analysis.ts';
-import { deriveTopLevelPromptFromMulti, validateFileSlotLimits } from './types.ts';
+import { deriveTopLevelPromptFromMulti, validateFileSlotLimits, validateMultiShot } from './types.ts';
 
 // Re-exported for the scripted resolver's tests and for callers that have
 // always reached for it here; the implementation lives in `types.ts` so the
@@ -77,6 +77,11 @@ export async function resolveInputs(
   // Fail fast on too-many-files-per-slot before uploading anything.
   validateFileSlotLimits(inputs.model, inputs.files);
 
+  // Vendor cross-field invariants (Kling multi-shot) — for BOTH paths.
+  // The scripted resolver also runs this (its callers/tests hit it
+  // directly); here it covers wizard-built params too.
+  validateMultiShot(inputs.params);
+
   // Upload local files → URLs before handing off to execution.
   if (hasAnyFile(inputs.files)) {
     const { creds } = await getAuthenticatedFetch();
@@ -115,12 +120,18 @@ export function flagsFullySpecifyInputs(flow: FlowSpec, flags: Record<string, un
         if (!hasImg && !flags['start-frame']) return false;
         break;
       }
-      case 'video':
-        if (!flags.video) return false;
+      case 'video': {
+        // --video-urls counts: array-slot models (seedance-*-video-extend)
+        // take their video via `videoUrls` instead of `videoUrl`.
+        const vids = flags['video-urls'] as string[] | undefined;
+        if (!flags.video && !(Array.isArray(vids) && vids.length > 0)) return false;
         break;
-      case 'audio':
-        if (!flags.audio) return false;
+      }
+      case 'audio': {
+        const auds = flags['audio-urls'] as string[] | undefined;
+        if (!flags.audio && !(Array.isArray(auds) && auds.length > 0)) return false;
         break;
+      }
     }
   }
 
@@ -190,5 +201,16 @@ function readStdinText(): Promise<string> {
 }
 
 function hasAnyFile(files: ResolvedInputs['files']): boolean {
-  return Boolean(files.images?.length || files.startFrame || files.endFrame || files.video || files.audio);
+  return Boolean(
+    files.images?.length ||
+      files.startFrame ||
+      files.endFrame ||
+      files.video ||
+      files.audio ||
+      files.videos?.length ||
+      files.audios?.length ||
+      files.staticMask ||
+      files.sceneImage ||
+      files.styleImage,
+  );
 }

@@ -69,13 +69,17 @@ export function validateRequiredInputs(flow: FlowSpec, inputs: Partial<ResolvedI
         }
         break;
       case 'video':
-        if (!inputs.files?.video) {
-          errors.push({ field: '--video', message: 'Video input is required' });
+        // `videos` (← --video-urls) counts too — models like
+        // seedance-2.0-video-extend expose `videoUrls` instead of `videoUrl`.
+        if (!inputs.files?.video && !inputs.files?.videos?.length) {
+          errors.push({ field: '--video or --video-urls', message: 'Video input is required' });
         }
         break;
       case 'audio':
-        if (!inputs.files?.audio) {
-          errors.push({ field: '--audio', message: 'Audio input is required' });
+        // `audios` (← --audio-urls) counts too — seed-audio models expose
+        // `audioUrls` instead of `audioUrl`.
+        if (!inputs.files?.audio && !inputs.files?.audios?.length) {
+          errors.push({ field: '--audio or --audio-urls', message: 'Audio input is required' });
         }
         break;
     }
@@ -137,6 +141,61 @@ export function buildParamsFromFlags(flags: Record<string, unknown>): Record<str
   }
 
   return params;
+}
+
+/**
+ * Pre-flight for Kling-style multi-shot generation.
+ *
+ * The backend enforces two cross-field invariants the user has no way to
+ * see from a single descriptor:
+ *
+ *   1. `multiShot=true` requires an explicit `shotType` — the API rejects
+ *      even though the descriptor declares a default.
+ *   2. When `shotType='customize'`, `sum(multiPrompt[].duration) === duration`.
+ *
+ * Throwing locally keeps the failure under one second instead of waiting
+ * for a polled 400 from the worker. Lives here (not in the scripted
+ * resolver) because the dispatcher runs it for BOTH resolution paths —
+ * wizard-built configs must fail just as fast as flag-built ones.
+ */
+export function validateMultiShot(params: Record<string, unknown>): void {
+  if (params.multiShot !== true) return;
+
+  if (typeof params.shotType !== 'string' || params.shotType.length === 0) {
+    throw new UsageError('--shot-type is required when --multi-shot is set (try `--shot-type customize`).');
+  }
+
+  if (params.shotType !== 'customize') return;
+
+  const shots = params.multiPrompt;
+  if (!Array.isArray(shots) || shots.length === 0) {
+    throw new UsageError('multi-shot=customize requires --multi-prompt-prompt entries describing each shot.');
+  }
+
+  // (Auto-numbering of `index` is handled generically by the flag/wizard
+  // readers via `autoNumberIndexField`. We only enforce the duration sum
+  // and shot_type rules here.)
+
+  const total = typeof params.duration === 'number' ? params.duration : Number(params.duration);
+  if (!Number.isFinite(total)) {
+    throw new UsageError('--duration is required when --multi-shot --shot-type customize is set.');
+  }
+
+  let sum = 0;
+  for (const s of shots) {
+    const d = (s as { duration?: unknown })?.duration;
+    const n = typeof d === 'number' ? d : Number(d);
+    if (!Number.isFinite(n)) {
+      throw new UsageError('Every shot needs a --multi-prompt-duration (got one with no parseable duration).');
+    }
+    sum += n;
+  }
+
+  if (sum !== total) {
+    throw new UsageError(
+      `Shot durations sum to ${sum}s but --duration is ${total}s — they must match for shot_type=customize.`,
+    );
+  }
 }
 
 /**
