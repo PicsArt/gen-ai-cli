@@ -11,13 +11,23 @@
  *   boolean       boolean or 'true'/'false' string           → boolean
  *   range         numeric coercion + [min,max] bounds        → number
  *   text          string + minLength/maxLength               → string
+ *   catalog       non-empty string (free-form id; the live   → string
+ *                 platform catalog is the source of truth,
+ *                 so membership is never validated)
  *   file          → throws Error (handled by file pipeline)
  *   object        → throws Error (handled by interpret/objects)
  *
  * Validation failures throw `UsageError` so the CLI surfaces them as
  * user-facing errors with the exact problem cited.
  */
-import type { EnumDescriptor, EnumOption, ParamDescriptor, RangeDescriptor, TextDescriptor } from '@picsart/ai-sdk';
+import type {
+  CatalogDescriptor,
+  EnumDescriptor,
+  EnumOption,
+  ParamDescriptor,
+  RangeDescriptor,
+  TextDescriptor,
+} from '@picsart/ai-sdk';
 import { UsageError } from '#infra/errors/usage.ts';
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -25,10 +35,12 @@ import { UsageError } from '#infra/errors/usage.ts';
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 const CAMEL_BOUNDARY = /([a-z0-9])([A-Z])/g;
+/** Boundary between an acronym run and the next word: `URLList` → `URL-List`. */
+const ACRONYM_BOUNDARY = /([A-Z]+)([A-Z][a-z])/g;
 
 export function camelToKebab(s: string): string {
   if (s === '') throw new Error('camelToKebab: empty string');
-  return s.replace(CAMEL_BOUNDARY, '$1-$2').toLowerCase();
+  return s.replace(ACRONYM_BOUNDARY, '$1-$2').replace(CAMEL_BOUNDARY, '$1-$2').toLowerCase();
 }
 
 const KEBAB_SEGMENT = /-([a-z0-9])/g;
@@ -59,6 +71,26 @@ function snakeOrCamelToKebab(s: string): string {
   return s.replace(/_+/g, '-').replace(CAMEL_BOUNDARY, '$1-$2').toLowerCase();
 }
 
+/**
+ * `camelCase` / `kebab-case` / `snake_case` → `"Title Case"` for
+ * user-facing labels when no SDK label is available. Acronym runs are
+ * kept intact: `aspectRatio` → `"Aspect Ratio"`, `imageURL` →
+ * `"Image URL"`, `keep_original_sound` → `"Keep Original Sound"`.
+ *
+ * Shared by flag-schema (flag descriptions) and wizard-schema (subfield
+ * step labels) so the two describe-halves can never drift.
+ */
+export function humanizeKey(key: string): string {
+  return key
+    .replace(/[-_]+/g, ' ')
+    .replace(CAMEL_BOUNDARY, '$1 $2')
+    .replace(ACRONYM_BOUNDARY, '$1 $2')
+    .split(/\s+/)
+    .map((w) => (w.length === 0 ? '' : w[0].toUpperCase() + w.slice(1)))
+    .join(' ')
+    .trim();
+}
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  coerceToDescriptor — kind table dispatch                                  */
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -80,11 +112,24 @@ export function coerceToDescriptor(raw: unknown, descriptor: ParamDescriptor): u
       return coerceRange(raw, descriptor);
     case 'text':
       return coerceText(raw, descriptor);
+    case 'catalog':
+      return coerceCatalog(raw, descriptor);
     case 'file':
       throw new Error('coerceToDescriptor: file inputs are handled by the file pipeline, not here');
     case 'object':
       throw new Error('coerceToDescriptor: object inputs are handled by interpret/objects, not here');
+    default:
+      return unreachableKind(descriptor);
   }
+}
+
+/**
+ * Compile-time exhaustiveness guard. If the SDK adds a new descriptor kind,
+ * this line becomes a type error AND the runtime throws loudly instead of
+ * silently dropping the value (the failure mode that hid `catalog` params).
+ */
+function unreachableKind(descriptor: never): never {
+  throw new Error(`coerceToDescriptor: unhandled descriptor kind '${(descriptor as ParamDescriptor).kind}'`);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -102,8 +147,8 @@ function coerceEnumString(raw: unknown, descriptor: EnumDescriptor<string>): str
 }
 
 function coerceEnumNumber(raw: unknown, descriptor: EnumDescriptor<number>): number {
-  const num = typeof raw === 'number' ? raw : Number(raw);
-  if (Number.isNaN(num)) {
+  const num = toNumberStrict(raw);
+  if (num === undefined) {
     throw new UsageError(`Expected a number, got "${String(raw)}". Allowed: ${listOptions(descriptor.options)}.`);
   }
   if (!descriptor.options.some((o) => o.id === num)) {
@@ -120,14 +165,24 @@ function coerceBoolean(raw: unknown): boolean {
 }
 
 function coerceRange(raw: unknown, descriptor: RangeDescriptor): number {
-  const num = typeof raw === 'number' ? raw : Number(raw);
-  if (Number.isNaN(num)) {
+  const num = toNumberStrict(raw);
+  if (num === undefined) {
     throw new UsageError(`Expected a number in [${descriptor.min}, ${descriptor.max}], got "${String(raw)}".`);
   }
   if (num < descriptor.min || num > descriptor.max) {
     throw new UsageError(`Value ${num} is out of range [${descriptor.min}, ${descriptor.max}].`);
   }
   return num;
+}
+
+function coerceCatalog(raw: unknown, descriptor: CatalogDescriptor): string {
+  if (typeof raw !== 'string') {
+    throw new UsageError(`Expected a ${descriptor.source.workflow} catalog id (string), got ${describeValue(raw)}.`);
+  }
+  if (raw.trim() === '') {
+    throw new UsageError(`Expected a ${descriptor.source.workflow} catalog id, got an empty string.`);
+  }
+  return raw;
 }
 
 function coerceText(raw: unknown, descriptor: TextDescriptor): string {
@@ -170,6 +225,18 @@ export function autoNumberIndexField(items: readonly Record<string, unknown>[]):
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Internal helpers                                                          */
 /* ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Numeric coercion that refuses the `Number()` footguns: `Number('') === 0`
+ * and `Number('  ') === 0` would silently accept an empty flag value as 0.
+ * Returns `undefined` when the value is not a usable number.
+ */
+function toNumberStrict(raw: unknown): number | undefined {
+  if (typeof raw === 'number') return Number.isNaN(raw) ? undefined : raw;
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const num = Number(raw);
+  return Number.isNaN(num) ? undefined : num;
+}
 
 function listOptions<T extends string | number>(options: ReadonlyArray<EnumOption<T>>): string {
   return options.map((o) => String(o.id)).join(', ');

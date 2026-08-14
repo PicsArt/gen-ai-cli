@@ -40,9 +40,10 @@ export interface FlowSpec {
    * to `Models.list()` to derive the allowed-id set for `filterCatalog`.
    *
    * Receives the full `ModelDefinition` from the SDK so the predicate
-   * can read `inputType`, `disabled`, `toolId`, `features`, `provider`,
-   * etc. Keep the predicate pure — no I/O, no side effects, no closures
-   * over mutable state.
+   * can read `inputType`, `disabled`, `deprecated`, `workflow`,
+   * `features`, `provider`, etc. Keep the predicate pure — no I/O, no
+   * side effects, no closures over mutable state. Start from
+   * `modelAvailable(m)` so disabled/deprecated models never leak in.
    */
   readonly modelFilter: (model: ModelDefinition) => boolean;
 
@@ -115,4 +116,14 @@ export type FlowExample = string | { command: string; description: string };
  */
 export function defineFlow(spec: FlowSpec): FlowSpec {
   return spec;
+}
+
+/**
+ * Shared availability gate for every flow's `modelFilter`: excludes
+ * models the SDK marks operationally unavailable (`disabled`) or retired
+ * (`deprecated` — the catalog row survives only so historical jobs and
+ * pricing stay resolvable; new generations must not target it).
+ */
+export function modelAvailable(model: ModelDefinition): boolean {
+  return model.disabled !== true && model.deprecated !== true;
 }

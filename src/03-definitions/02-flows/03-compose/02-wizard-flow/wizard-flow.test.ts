@@ -79,7 +79,7 @@ describe('composeWizardForFlow — no matching models', () => {
   it('emits no model picker and no descriptor steps; static groups still appear', () => {
     const cat = loadCatalog([], ALIAS_MAP);
     const steps = composeWizardForFlow(VIDEO_FLOW, cat, [T2I_C]);
-    expect(steps.find((s) => s.key === 'model')).toBeUndefined();
+    expect(steps.find((s) => s.key === '$model')).toBeUndefined();
     // static groups still spliced
     expect(steps.find((s) => s.key === 'downloadPath')).toBeDefined();
     expect(steps.find((s) => s.key === 'proceed')).toBeDefined();
@@ -96,7 +96,7 @@ describe('composeWizardForFlow — model picker', () => {
     const steps = composeWizardForFlow(VIDEO_FLOW, cat, [T2V_A, T2V_B, T2I_C]);
     const picker = steps[0];
     if (picker.kind !== 'select') throw new Error('expected select');
-    expect(picker.key).toBe('model');
+    expect(picker.key).toBe('$model');
     expect(picker.choices.map((c) => c.id)).toEqual(['kling-a', 'veo-b']);
     expect(picker.required).toBe(true);
   });
@@ -124,6 +124,38 @@ describe('composeWizardForFlow — model picker', () => {
     const picker = steps[0];
     if (picker.kind !== 'select') throw new Error('expected select');
     expect(picker.choices[0].label).toBe('Kling A');
+  });
+
+  it('never collides with an SDK descriptor literally named `model` (Topaz engine, Flux tier)', () => {
+    // A real SDK-5 case: enhance/upscale models declare a `model` param
+    // (the engine/tier picker, shipped as --model-version). The runner
+    // keys answers by step.key, so the picker key must stay disjoint —
+    // it uses the runner-owned '$model' namespace.
+    const withModelParam: ModelDefinition = {
+      ...T2V_A,
+      paramConfig: {
+        ...T2V_A.paramConfig,
+        model: {
+          label: 'Engine',
+          descriptor: {
+            kind: 'enum',
+            valueType: 'string',
+            options: [{ id: 'High Fidelity V2' }, { id: 'Standard V2' }],
+            default: 'High Fidelity V2',
+          },
+        },
+      } as ModelDefinition['paramConfig'],
+    };
+    const cat = loadCatalog(asCatalogModels([withModelParam]), ALIAS_MAP);
+    const steps = composeWizardForFlow(VIDEO_FLOW, cat, [withModelParam]);
+
+    const keys = steps.map((s) => s.key);
+    expect(new Set(keys).size).toBe(keys.length); // no duplicate answer slots
+
+    const picker = steps.find((s) => s.key === '$model');
+    const engine = steps.find((s) => s.key === 'model');
+    expect(picker?.kind).toBe('select');
+    expect(engine?.kind).toBe('select');
   });
 });
 
@@ -153,7 +185,7 @@ describe('composeWizardForFlow — order', () => {
     const steps = composeWizardForFlow(VIDEO_FLOW, cat, [T2V_A, T2V_B]);
     const keys = steps.map((s) => s.key);
 
-    expect(keys[0]).toBe('model'); // picker first
+    expect(keys[0]).toBe('$model'); // picker first
 
     const promptIdx = keys.indexOf('prompt');
     const downloadIdx = keys.indexOf('downloadPath');

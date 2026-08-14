@@ -8,7 +8,7 @@
  *
  * Coverage:
  *   - one fixture per descriptor kind (enum<string>, enum<number>,
- *     boolean, range, text, file, object)
+ *     boolean, range, text, catalog, file, object)
  *   - dedup scenarios: two models sharing one key with the same kind
  *   - conflict scenarios: two models sharing one key with different kinds
  */
@@ -76,6 +76,21 @@ export const MODEL_TEXT: ModelLike = {
       label: 'Prompt',
       required: true,
       descriptor: { kind: 'text', maxLength: 2000 },
+    },
+  },
+};
+
+export const MODEL_CATALOG: ModelLike = {
+  id: 'fx-catalog',
+  paramConfig: {
+    voiceId: {
+      label: 'Voice',
+      required: true,
+      descriptor: {
+        kind: 'catalog',
+        source: { workflow: 'heygen/v1/catalog/voices' },
+        default: 'vx_default',
+      },
     },
   },
 };

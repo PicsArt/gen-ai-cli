@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MODEL_BOOLEAN,
+  MODEL_CATALOG,
   MODEL_ENUM_NUMBER,
   MODEL_ENUM_STRING,
   MODEL_FILE,
@@ -84,6 +85,18 @@ describe('generateWizardStepsFromCatalog — kind table', () => {
     expect(step.accept).toBe('image');
     expect(step.multi).toBe(true);
     expect(step.arrayMax).toBe(4);
+  });
+
+  it('catalog descriptor → catalog step with source and default', () => {
+    // SDK 5: voiceId/videoId are free-string ids served by a platform
+    // catalog task. The wizard step carries the source workflow so a
+    // runner can fetch live options, and the descriptor default.
+    const cat = loadCatalog([MODEL_CATALOG], ALIAS_MAP);
+    const step = stepByKey(generateWizardStepsFromCatalog(cat), 'voiceId');
+    if (step.kind !== 'catalog') throw new Error(`expected catalog, got ${step.kind}`);
+    expect(step.source).toBe('heygen/v1/catalog/voices');
+    expect(step.default).toBe('vx_default');
+    expect(step.required).toBe(true);
   });
 
   it('file descriptor without `array` → multi: false, no arrayMax', () => {

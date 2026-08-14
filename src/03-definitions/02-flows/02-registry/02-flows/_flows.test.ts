@@ -5,11 +5,16 @@
  * `01-video/video.test.ts` for the exemplar). This file exists to:
  *   1. Lock the registry shape — every entry's key matches its spec id.
  *   2. Smoke-test the modelFilter discipline (uses the SDK's InputType
- *      union, respects `disabled`, rejects every non-matching type).
+ *      union, respects `disabled` AND `deprecated`, rejects every
+ *      non-matching type).
  *   3. Verify required-input declarations are plausible (no empty for
  *      generation flows, at least one of prompt/image/video/audio).
+ *   4. Real-SDK coverage — every flow matches at least one live model
+ *      (this is what caught the SDK-5 `toolId` removal that silently
+ *      emptied all eight sub-category flows).
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
+import { Models } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { FLOWS, type FlowId } from './_flows.ts';
 
@@ -67,20 +72,27 @@ const INPUT_TYPE_ONLY_FLOWS: Record<string, ModelDefinition['inputType']> = {
 
 /**
  * Sub-category flows: an InputType is necessary but not sufficient —
- * a representative `toolId` makes the predicate accept. Each row pairs
- * an InputType with a fixture toolId known to satisfy the predicate.
+ * a representative `workflow` (or model id, where vendors reuse one
+ * workflow across operations) makes the predicate accept. Each fixture
+ * mirrors a real SDK-5 model.
  */
-const SUB_CATEGORY_FLOWS: Record<string, { inputType: ModelDefinition['inputType']; toolId: string }> = {
-  'remove-bg': { inputType: 'i2i', toolId: 'image-to-image.picsart-sod' },
-  'change-bg': { inputType: 'i2i', toolId: 'image-to-image.picsart-change-bg' },
-  enhance: { inputType: 'i2i', toolId: 'image-to-image.picsart-enhance' },
-  upscale: { inputType: 'i2i', toolId: 'image-gen.recraft.creative-upscale' },
-  vectorize: { inputType: 'i2i', toolId: 'image-gen.recraft.vectorize' },
-  'edit-image': { inputType: 'i2i', toolId: 'image-to-image.qwen-image-edit' },
-  character: { inputType: 'i2i', toolId: 'image-gen.runway-gen4-ref' },
+const SUB_CATEGORY_FLOWS: Record<
+  string,
+  { inputType: ModelDefinition['inputType']; workflow: string; modelId?: string }
+> = {
+  'remove-bg': { inputType: 'i2i', workflow: 'pcp/v2/sod' },
+  'change-bg': { inputType: 'i2i', workflow: 'v4/smart-background' },
+  enhance: { inputType: 'i2i', workflow: 'pcp/v1/enhancement' },
+  upscale: { inputType: 'i2i', workflow: 'recraft/v1/images/creativeUpscale' },
+  vectorize: { inputType: 'i2i', workflow: 'recraft/v1/images/vectorize' },
+  'edit-image': { inputType: 'i2i', workflow: 'pcp/v1/qwen-image-edit' },
+  // ideogram-character's workflow ('ideogram-v3-generate') is uninformative —
+  // the id is the discriminator, exactly like the real model.
+  character: { inputType: 'i2i', workflow: 'ideogram-v3-generate', modelId: 'ideogram-character' },
   // `multi-image` is descriptor-driven (paramConfig.imageUrls.array.max > 1),
-  // not toolId-driven — covered by its own test below.
-  extend: { inputType: 'v2v', toolId: 'video-gen.sora-2-extend' },
+  // not workflow-driven — covered by its own test below.
+  // Every seedance variant shares workflow "seedance"; only the id says extend.
+  extend: { inputType: 'v2v', workflow: 'seedance', modelId: 'seedance-2.0-video-extend' },
 };
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -130,30 +142,39 @@ describe('FLOWS — modelFilter (InputType-only flows)', () => {
       it('rejects disabled models even when InputType matches', () => {
         expect(flow.modelFilter(mockModel({ inputType: expectedType, disabled: true }))).toBe(false);
       });
+
+      it('rejects deprecated models even when InputType matches', () => {
+        expect(flow.modelFilter(mockModel({ inputType: expectedType, deprecated: true }))).toBe(false);
+      });
     });
   }
 });
 
-describe('FLOWS — modelFilter (sub-category flows with toolId discriminator)', () => {
-  for (const [id, { inputType, toolId }] of Object.entries(SUB_CATEGORY_FLOWS)) {
-    describe(`flow "${id}" — inputType=${inputType} + toolId pattern`, () => {
+describe('FLOWS — modelFilter (sub-category flows with workflow/id discriminator)', () => {
+  for (const [id, { inputType, workflow, modelId }] of Object.entries(SUB_CATEGORY_FLOWS)) {
+    describe(`flow "${id}" — inputType=${inputType} + workflow pattern`, () => {
       const flow = FLOWS[id as FlowId];
+      const fixture = { inputType, workflow, ...(modelId !== undefined ? { id: modelId } : {}) };
 
-      it('accepts a model with matching inputType AND a representative toolId', () => {
-        expect(flow.modelFilter(mockModel({ inputType, toolId }))).toBe(true);
+      it('accepts a model with matching inputType AND a representative workflow/id', () => {
+        expect(flow.modelFilter(mockModel(fixture))).toBe(true);
       });
 
-      it('rejects models with the right InputType but an unrelated toolId', () => {
-        expect(flow.modelFilter(mockModel({ inputType, toolId: 'something.unrelated' }))).toBe(false);
+      it('rejects models with the right InputType but an unrelated workflow', () => {
+        expect(flow.modelFilter(mockModel({ inputType, workflow: 'something/unrelated' }))).toBe(false);
       });
 
-      it('rejects models with the matching toolId but the wrong InputType', () => {
+      it('rejects models with the matching workflow but the wrong InputType', () => {
         const otherType = ALL_INPUT_TYPES.find((t) => t !== inputType) as ModelDefinition['inputType'];
-        expect(flow.modelFilter(mockModel({ inputType: otherType, toolId }))).toBe(false);
+        expect(flow.modelFilter(mockModel({ ...fixture, inputType: otherType }))).toBe(false);
       });
 
-      it('rejects disabled models even when both inputType and toolId match', () => {
-        expect(flow.modelFilter(mockModel({ inputType, toolId, disabled: true }))).toBe(false);
+      it('rejects disabled models even when both inputType and workflow match', () => {
+        expect(flow.modelFilter(mockModel({ ...fixture, disabled: true }))).toBe(false);
+      });
+
+      it('rejects deprecated models even when both inputType and workflow match', () => {
+        expect(flow.modelFilter(mockModel({ ...fixture, deprecated: true }))).toBe(false);
       });
     });
   }
@@ -192,6 +213,10 @@ describe('FLOWS — descriptor-driven (paramConfig-shape discriminator)', () => 
       expect(flow.modelFilter({ ...modelWithImageMax(4), disabled: true } as ModelDefinition)).toBe(false);
     });
 
+    it('rejects deprecated models even when imageUrls declares array.max > 1', () => {
+      expect(flow.modelFilter({ ...modelWithImageMax(4), deprecated: true } as ModelDefinition)).toBe(false);
+    });
+
     it('accepts across InputTypes (t2i / i2i / i2v / v2v) — descriptor decides, not inputType', () => {
       for (const t of ['t2i', 'i2i', 'i2v', 'v2v'] as const) {
         expect(flow.modelFilter(modelWithImageMax(3, t))).toBe(true);
@@ -226,5 +251,57 @@ describe('FLOWS — requiredInputs', () => {
     for (const spec of Object.values(FLOWS)) {
       for (const input of spec.requiredInputs) expect(valid.has(input)).toBe(true);
     }
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  Real-SDK coverage                                                     */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('FLOWS — against the real SDK model list', () => {
+  const models = Models.list();
+
+  it('every flow matches at least one live model (a zero-match flow is a dead command)', () => {
+    const empty: string[] = [];
+    for (const [id, spec] of Object.entries(FLOWS)) {
+      if (!models.some((m) => spec.modelFilter(m))) empty.push(id);
+    }
+    expect(empty, `Flows matching zero models: ${empty.join(', ')}`).toEqual([]);
+  });
+
+  it('no flow matches a disabled or deprecated model', () => {
+    const offenders: string[] = [];
+    for (const [id, spec] of Object.entries(FLOWS)) {
+      for (const m of models) {
+        if ((m.disabled === true || m.deprecated === true) && spec.modelFilter(m)) {
+          offenders.push(`${id} ← ${m.id}`);
+        }
+      }
+    }
+    expect(offenders, offenders.join('; ')).toEqual([]);
+  });
+
+  it("every flow's defaultModel exists and passes its own filter", () => {
+    for (const spec of Object.values(FLOWS)) {
+      if (spec.defaultModel === undefined) continue;
+      const m = models.find((x) => x.id === spec.defaultModel);
+      expect(m, `defaultModel '${spec.defaultModel}' not found for flow '${spec.id}'`).toBeDefined();
+      expect(spec.modelFilter(m as ModelDefinition)).toBe(true);
+    }
+  });
+
+  it('every model id referenced by an example exists and passes that flow filter', () => {
+    const problems: string[] = [];
+    for (const spec of Object.values(FLOWS)) {
+      for (const example of spec.examples ?? []) {
+        const command = typeof example === 'string' ? example : example.command;
+        const match = /(?:-m|--model)\s+(\S+)/.exec(command);
+        if (!match) continue;
+        const m = models.find((x) => x.id === match[1]);
+        if (!m) problems.push(`${spec.id}: example model '${match[1]}' does not exist`);
+        else if (!spec.modelFilter(m)) problems.push(`${spec.id}: example model '${match[1]}' fails the flow filter`);
+      }
+    }
+    expect(problems, problems.join('; ')).toEqual([]);
   });
 });

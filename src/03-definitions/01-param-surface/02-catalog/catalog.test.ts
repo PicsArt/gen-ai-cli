@@ -106,6 +106,53 @@ describe('loadCatalog — alias resolution', () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */
+/*  Flag-name collisions                                                  */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('loadCatalog — flag-name collisions', () => {
+  // Reproduces the SDK-5 drift where a real `format` key landed next to
+  // the historic `outputFormat → --format` alias: the alias must yield,
+  // never shadow or misroute the real flag.
+  const REAL_KEY_PLUS_ALIAS: readonly ModelLike[] = [
+    { id: 'fx-real-format', paramConfig: { format: { descriptor: { kind: 'text' } } } },
+    { id: 'fx-output-format', paramConfig: { outputFormat: { descriptor: { kind: 'text' } } } },
+  ];
+  const aliasMap = { outputFormat: { aliases: ['format'] } };
+
+  it('a long-form alias colliding with another surface PRIMARY flag is dropped', () => {
+    const cat = loadCatalog(REAL_KEY_PLUS_ALIAS, aliasMap);
+    expect(cat.bySdkKey.get('outputFormat')?.flagAliases).toEqual([]);
+    expect(cat.byFlag.get('format')?.key).toBe('format');
+    expect(cat.byFlag.get('output-format')?.key).toBe('outputFormat');
+  });
+
+  it('alias drop is independent of model walk order', () => {
+    const cat = loadCatalog([...REAL_KEY_PLUS_ALIAS].reverse(), aliasMap);
+    expect(cat.bySdkKey.get('outputFormat')?.flagAliases).toEqual([]);
+    expect(cat.byFlag.get('format')?.key).toBe('format');
+  });
+
+  it('two aliases claiming the same name: first surface (by key order) keeps it', () => {
+    const models: readonly ModelLike[] = [
+      { id: 'm1', paramConfig: { alpha: { descriptor: { kind: 'text' } } } },
+      { id: 'm2', paramConfig: { beta: { descriptor: { kind: 'text' } } } },
+    ];
+    const cat = loadCatalog(models, { alpha: { aliases: ['x'] }, beta: { aliases: ['x'] } });
+    expect(cat.byFlag.get('x')?.key).toBe('alpha');
+    expect(cat.bySdkKey.get('beta')?.flagAliases).toEqual([]);
+  });
+
+  it('two keys resolving to the same PRIMARY flag throw (configuration error)', () => {
+    const models: readonly ModelLike[] = [
+      { id: 'm1', paramConfig: { modelVersion: { descriptor: { kind: 'text' } } } },
+      { id: 'm2', paramConfig: { model: { descriptor: { kind: 'text' } } } },
+    ];
+    // ALIAS_MAP maps `model` → 'model-version', which `modelVersion` derives naturally.
+    expect(() => loadCatalog(models, ALIAS_MAP)).toThrow(/model-version/);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
 /*  Dedup                                                                 */
 /* ─────────────────────────────────────────────────────────────────────── */
 
@@ -355,6 +402,22 @@ describe('against the real SDK catalog', () => {
 
   it('exposes a non-empty catalog', () => {
     expect(realCatalog.bySdkKey.size).toBeGreaterThan(0);
+  });
+
+  it('no two surfaces share a flag name or alias (silent byFlag overwrites)', () => {
+    // Guards against SDK drift like the 5.0.0 `format` / `thinking` keys
+    // landing next to the historic `outputFormat → --format` /
+    // `thinkingLevel → --thinking` aliases.
+    const seen = new Map<string, string>();
+    const dupes: string[] = [];
+    for (const s of realCatalog.all()) {
+      for (const name of [s.flag, ...s.flagAliases]) {
+        const holder = seen.get(name);
+        if (holder !== undefined) dupes.push(`--${name} claimed by both '${holder}' and '${s.key}'`);
+        else seen.set(name, s.key);
+      }
+    }
+    expect(dupes, dupes.join('; ')).toEqual([]);
   });
 
   it('produces a stable surface (snapshot)', () => {

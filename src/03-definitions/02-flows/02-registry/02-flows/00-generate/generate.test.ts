@@ -5,7 +5,7 @@
  * shape contract. This file pins down the universal-flow specifics:
  *
  *   - modelFilter accepts every InputType (no narrowing).
- *   - modelFilter still rejects disabled models.
+ *   - modelFilter still rejects disabled and deprecated models.
  *   - requiredInputs is empty by design (model-driven, not flow-driven).
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
@@ -35,7 +35,7 @@ function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
     mode: 'image',
     disabled: false,
     paramConfig: {},
-    toolId: 'image-gen.mock',
+    workflow: 'mock/v1/generate',
     ...overrides,
   } as ModelDefinition;
 }
@@ -53,8 +53,14 @@ describe('GENERATE_FLOW — universal modelFilter', () => {
     }
   });
 
-  it('is agnostic to toolId — accepts arbitrary toolId values', () => {
-    expect(GENERATE_FLOW.modelFilter(mockModel({ toolId: 'something.unknown' }))).toBe(true);
+  it('rejects deprecated models regardless of InputType', () => {
+    for (const t of ALL_INPUT_TYPES) {
+      expect(GENERATE_FLOW.modelFilter(mockModel({ inputType: t, deprecated: true }))).toBe(false);
+    }
+  });
+
+  it('is agnostic to workflow — accepts arbitrary workflow values', () => {
+    expect(GENERATE_FLOW.modelFilter(mockModel({ workflow: 'something/unknown' }))).toBe(true);
   });
 });
 

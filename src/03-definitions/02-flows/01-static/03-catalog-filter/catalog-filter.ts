@@ -19,13 +19,19 @@
  * Behavior:
  *   - drop surfaces whose `models[]` contains no id in the allowed set
  *   - for kept surfaces, trim metadata to only the allowed ids:
- *       models, requiredInModels, perModelLabels, conflicts
+ *       models, requiredInModels, perModelLabels, descriptorsByModel
+ *   - RE-MERGE the descriptor (and conflicts) from the allowed models'
+ *     own descriptors via Param Surface's `mergeDescriptors`, so enum
+ *     options / kinds contributed only by excluded models don't leak
+ *     into the narrowed view
  *   - rebuild bySdkKey / byFlag maps from the kept surfaces
  *   - preserve the alphabetical-by-key order Param Surface promised
  *
  * Pure function. No I/O. Does not mutate input.
  */
+import type { ParamDescriptor } from '@picsart/ai-sdk';
 import type { Catalog, ParamSurface } from '#param-surface';
+import { mergeDescriptors } from '#param-surface';
 
 export function filterCatalog(catalog: Catalog, allowedModelIds: ReadonlySet<string>): Catalog {
   const kept: ParamSurface[] = [];
@@ -56,13 +62,19 @@ function trimSurface(surface: ParamSurface, allowed: ReadonlySet<string>): Param
   for (const [id, label] of surface.perModelLabels) {
     if (allowed.has(id)) perModelLabels.set(id, label);
   }
-  const conflicts = surface.conflicts.filter((c) => allowed.has(c.modelId));
+  const descriptorsByModel = new Map<string, ParamDescriptor>();
+  for (const [id, desc] of surface.descriptorsByModel) {
+    if (allowed.has(id)) descriptorsByModel.set(id, desc);
+  }
+  const merged = mergeDescriptors(descriptorsByModel);
 
   return {
     ...surface,
+    descriptor: merged.descriptor,
+    descriptorsByModel,
     models,
     requiredInModels,
     perModelLabels,
-    conflicts,
+    conflicts: merged.conflicts,
   };
 }

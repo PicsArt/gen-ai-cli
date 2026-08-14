@@ -82,8 +82,9 @@ export const ALIAS_MAP: AliasMap = {
   // aliases were dropped when the SDK consolidated those descriptors into
   // `imageUrls` / `videoUrls` / `audioUrls`. Pass references via `-i`,
   // `--video-urls`, or `--audio-urls`.)
-  // --thinking-level → --thinking (Gemini 3.x reasoning depth).
-  thinkingLevel: { aliases: ['thinking'] },
+  // (The old `thinkingLevel → --thinking` alias was dropped when the SDK
+  // added a real `thinking` descriptor key — the alias would shadow it.
+  // Use the full --thinking-level.)
   // --human-fidelity → --fidelity (Kling face-fidelity slider).
   humanFidelity: { aliases: ['fidelity'] },
   // --character-orientation → --orientation (Kling motion-control).
@@ -94,8 +95,9 @@ export const ALIAS_MAP: AliasMap = {
   externalTaskId: { aliases: ['task-id'] },
   // --source-image-id → --source-id (Recraft Explore Similar).
   sourceImageId: { aliases: ['source-id'] },
-  // --output-format → --format (OpenAI gpt-image; well-known abbreviation).
-  outputFormat: { aliases: ['format'] },
+  // (The old `outputFormat → --format` alias was dropped when the SDK
+  // added a real `format` descriptor key — the alias would shadow it.
+  // Use the full --output-format.)
   // --sound-effect-prompt → --sfx-prompt (Kling V2A).
   soundEffectPrompt: { aliases: ['sfx-prompt'] },
   // --bgm-prompt → --bgm (Kling V2A background-music prompt).

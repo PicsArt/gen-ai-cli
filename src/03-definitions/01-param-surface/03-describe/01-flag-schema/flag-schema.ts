@@ -11,6 +11,7 @@
  *   boolean       → Flags.boolean({ allowNo: true })
  *   range         → Flags.string()                            ← flag-reader coerces
  *   text          → Flags.string()
+ *   catalog       → Flags.string()  (free-string id; live catalog validates)
  *   file          → skipped (file pipeline owns file inputs)
  *   object        → delegated to `./objects.ts` (per-subfield flags)
  *
@@ -24,6 +25,7 @@
 import { Flags } from '@oclif/core';
 import type { EnumDescriptor, FileDescriptor } from '@picsart/ai-sdk';
 import type { Catalog, ParamSurface } from '../../02-catalog/index.ts';
+import { aliasOpts, describeFlag, distinctLabelCount } from './description.ts';
 import { describeObjectFlags } from './objects.ts';
 
 /** Spreadable into an oclif command's `static flags = {...}`. */
@@ -48,6 +50,11 @@ function flagsFor(surface: ParamSurface): FlagSet {
       return { [surface.flag]: makeRangeOrTextFlag(surface) };
     case 'text':
       return { [surface.flag]: makeRangeOrTextFlag(surface) };
+    case 'catalog':
+      // Free-string id served by a platform catalog task (voiceId, videoId).
+      // Membership is validated by the live catalog, not the CLI, so this is
+      // a plain string flag.
+      return { [surface.flag]: makeRangeOrTextFlag(surface) };
     case 'file':
       // Emit a path flag so oclif accepts `--<flag> <path>`. The resolver
       // is what actually uploads the file and substitutes the URL into
@@ -57,7 +64,18 @@ function flagsFor(surface: ParamSurface): FlagSet {
     case 'object':
       // Object descriptors expand into per-subfield flags. See ./objects.ts.
       return describeObjectFlags(surface);
+    default:
+      return unreachableKind(desc);
   }
+}
+
+/**
+ * Compile-time exhaustiveness guard. A new SDK descriptor kind fails the
+ * build here instead of silently emitting no flag — the failure mode that
+ * hid `catalog` params (no `--voice` flag) when SDK 5 introduced the kind.
+ */
+function unreachableKind(desc: never): never {
+  throw new Error(`flagsFor: unhandled descriptor kind '${(desc as { kind: string }).kind}'`);
 }
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -96,9 +114,10 @@ function makeFileFlag(surface: ParamSurface, desc: FileDescriptor): unknown {
 }
 
 function describeFileFlag(surface: ParamSurface, desc: FileDescriptor): string {
-  const label = describeFlag(surface);
+  // No labels at all → the hint alone. One agreed label, or a neutral
+  // flag-derived name when models disagree → "<label> — <hint>".
   const hint = fileHint(surface, desc);
-  return label === surface.key ? hint : `${label} — ${hint}`;
+  return distinctLabelCount(surface) === 0 ? hint : `${describeFlag(surface)} — ${hint}`;
 }
 
 /**
@@ -117,56 +136,5 @@ function fileHint(surface: ParamSurface, desc: FileDescriptor): string {
     : `path(s) to ${desc.accept} files (repeatable)`;
 }
 
-/**
- * Common alias options shared by every flag factory. oclif types `char`
- * narrowly as a single alphabet character literal; conditional spread
- * + cast keeps the call sites type-clean without spreading `undefined`.
- */
-function aliasOpts(surface: ParamSurface): {
-  char?: 'a';
-  aliases?: string[];
-} {
-  const opts: { char?: 'a'; aliases?: string[] } = {};
-  if (surface.char !== undefined) opts.char = surface.char as 'a';
-  if (surface.flagAliases.length > 0) opts.aliases = [...surface.flagAliases];
-  return opts;
-}
-
-/* ─────────────────────────────────────────────────────────────────────── */
-/*  Description text                                                      */
-/* ─────────────────────────────────────────────────────────────────────── */
-
-function describeFlag(surface: ParamSurface): string {
-  // Collect the distinct, non-empty labels models gave this parameter.
-  const distinct = new Set<string>();
-  for (const label of surface.perModelLabels.values()) {
-    const trimmed = label?.trim();
-    if (trimmed) distinct.add(trimmed);
-  }
-  // Models DISAGREE on the label — e.g. `imageUrls` is "Reference Images"
-  // for Veo but "Person Photo (upper body)" for Kling. On the universal
-  // `generate` command no single model's wording is correct, so collapse to
-  // a neutral name derived from the user-facing flag ("--image" → "Image")
-  // rather than letting whichever model was walked first dictate the help.
-  if (distinct.size > 1) return humanizeKey(surface.flag);
-  // Exactly one agreed label → authoritative.
-  if (distinct.size === 1) return [...distinct][0];
-  // No model supplied a label → humanized SDK key ("aspectRatio" → "Aspect Ratio").
-  return humanizeKey(surface.key);
-}
-
-/**
- * `camelCase` / `kebab-case` → `"Title Case"` for flag descriptions when
- * no SDK label is available. `aspectRatio` → `"Aspect Ratio"`,
- * `cfg-scale` → `"Cfg Scale"`, `URL` → `"URL"` (acronym runs kept).
- */
-function humanizeKey(key: string): string {
-  return key
-    .replace(/[-_]+/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/\s+/)
-    .map((w) => (w.length === 0 ? '' : w[0].toUpperCase() + w.slice(1)))
-    .join(' ')
-    .trim();
-}
+// Description text and alias options live in ./description.ts, shared
+// with the object-descriptor expansion (./objects.ts).

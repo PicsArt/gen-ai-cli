@@ -1,23 +1,20 @@
 /**
- * `gen-ai edit-image` — prompt-driven image editing.
+ * `gen-ai edit-image` — edit an image with a text prompt.
  *
- * i2i sub-category. Discriminator: i2i AND toolId indicates a
- * prompt-driven editor (flux-kontext, qwen-image-edit, qwen-edit-plus,
- * qwen-makeup, gemini-2.5-flash-image, seedream edit, ...).
- *
- * Distinct from the operation-specific i2i flows (remove-bg, change-bg,
- * enhance, upscale, vectorize) which use task-fixed tools.
+ * i2i sub-category. Discriminator: i2i AND the model's backend workflow
+ * indicates a prompted image editor (Qwen image-edit family
+ * `pcp/v1/qwen-image-edit`, `qwen-image-edit-plus`, Qwen makeup
+ * `pcp/v2/qwen-makeup`).
  */
-import { hasToolIdMatching } from '../../../01-static/04-tool-id-match/index.ts';
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { matchesWorkflowOrId } from '../../../01-static/04-workflow-match/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
-const EDIT_TOOL =
-  /\.(flux-kontext|qwen-image-edit|qwen-edit-plus|qwen-makeup|gemini-2\.5-flash-image|seedream.*edit|image-edit)/i;
+const EDIT_IMAGE = /image-edit|qwen-makeup/i;
 
 export const EDIT_IMAGE_FLOW = defineFlow({
   id: 'edit-image',
   description: 'Edit an image with a text prompt',
-  modelFilter: (m) => m.inputType === 'i2i' && m.disabled !== true && hasToolIdMatching(m, EDIT_TOOL),
+  modelFilter: (m) => m.inputType === 'i2i' && modelAvailable(m) && matchesWorkflowOrId(m, EDIT_IMAGE),
   staticFlagGroups: ['universal', 'output', 'model', 'prompt-input', 'directory-input'],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: ['image', 'prompt'],

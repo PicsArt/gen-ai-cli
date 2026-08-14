@@ -15,12 +15,12 @@
  * Note: a plain LLM call answers from the model's training data, not the live
  * web — "current trends" reflects model knowledge, not real-time results.
  */
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
 export const ASK_FLOW = defineFlow({
   id: 'ask',
   description: 'Ask an LLM — text in (optional image/video), text out',
-  modelFilter: (m) => m.mode === 'text' && m.disabled !== true,
+  modelFilter: (m) => m.mode === 'text' && modelAvailable(m),
   staticFlagGroups: ['universal', 'model', 'prompt-input'],
   staticStepGroups: ['confirm'],
   requiredInputs: ['prompt'],

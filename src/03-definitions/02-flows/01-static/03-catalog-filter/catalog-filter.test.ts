@@ -191,6 +191,74 @@ describe('filterCatalog — lookup maps', () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────── */
+/*  Descriptor re-merge — the narrowed view must not leak excluded models */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('filterCatalog — descriptor re-merge from allowed models only', () => {
+  const ENUM_X: ModelLike = {
+    id: 'enum-x',
+    paramConfig: {
+      aspectRatio: {
+        descriptor: {
+          kind: 'enum',
+          valueType: 'string',
+          options: [{ id: '16:9' }, { id: '9:16' }],
+          default: '16:9',
+        },
+      },
+    },
+  };
+  const ENUM_Y: ModelLike = {
+    id: 'enum-y',
+    paramConfig: {
+      aspectRatio: {
+        descriptor: {
+          kind: 'enum',
+          valueType: 'string',
+          options: [{ id: '1:1' }, { id: '21:9' }],
+          default: '1:1',
+        },
+      },
+    },
+  };
+
+  it('drops enum options contributed only by excluded models', () => {
+    const cat = loadCatalog([ENUM_X, ENUM_Y], ALIAS_MAP);
+    const filtered = filterCatalog(cat, new Set(['enum-y']));
+    const surface = filtered.bySdkKey.get('aspectRatio');
+    if (surface?.descriptor.kind !== 'enum') throw new Error('expected enum');
+    expect(surface.descriptor.options.map((o) => o.id)).toEqual(['1:1', '21:9']);
+    expect(surface.descriptor.default).toBe('1:1');
+  });
+
+  it('re-picks the primary kind when the first-seen model is excluded', () => {
+    const TEXTY: ModelLike = { id: 'texty', paramConfig: { overlap: { descriptor: { kind: 'text' } } } };
+    const RANGY: ModelLike = {
+      id: 'rangy',
+      paramConfig: { overlap: { descriptor: { kind: 'range', min: 0, max: 1, default: 0.5 } } },
+    };
+    const cat = loadCatalog([TEXTY, RANGY], ALIAS_MAP);
+    // Universal view: text wins (first seen), range recorded as conflict.
+    expect(cat.bySdkKey.get('overlap')?.descriptor.kind).toBe('text');
+
+    // Narrowed to the range-only model, the flow must see a RANGE flag —
+    // not the excluded text model's descriptor.
+    const filtered = filterCatalog(cat, new Set(['rangy']));
+    const surface = filtered.bySdkKey.get('overlap');
+    expect(surface?.descriptor.kind).toBe('range');
+    expect(surface?.conflicts).toEqual([]);
+  });
+
+  it('keeps the merged view intact when every declaring model is allowed', () => {
+    const cat = loadCatalog([ENUM_X, ENUM_Y], ALIAS_MAP);
+    const filtered = filterCatalog(cat, new Set(['enum-x', 'enum-y']));
+    const surface = filtered.bySdkKey.get('aspectRatio');
+    if (surface?.descriptor.kind !== 'enum') throw new Error('expected enum');
+    expect(surface.descriptor.options.map((o) => o.id)).toEqual(['16:9', '9:16', '1:1', '21:9']);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
 /*  Ordering contract                                                     */
 /* ─────────────────────────────────────────────────────────────────────── */
 

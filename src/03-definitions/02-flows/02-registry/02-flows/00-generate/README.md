@@ -1,6 +1,6 @@
 # `gen-ai generate` — universal entry point
 
-The umbrella flow. Accepts any non-disabled model, regardless of InputType or toolId sub-category. Specialized flows (`image`, `video`, `music`, …) remain the preferred way to invoke a known category — `generate` is for discovery and one-off use.
+The umbrella flow. Accepts any non-disabled model, regardless of InputType or workflow sub-category. Specialized flows (`image`, `video`, `music`, …) remain the preferred way to invoke a known category — `generate` is for discovery and one-off use.
 
 ## Discriminator
 
@@ -8,7 +8,7 @@ The umbrella flow. Accepts any non-disabled model, regardless of InputType or to
 modelFilter: (m) => m.disabled !== true
 ```
 
-No InputType or toolId narrowing. Every other flow narrows; this one doesn't.
+No InputType or workflow narrowing. Every other flow narrows; this one doesn't.
 
 ## Inputs
 

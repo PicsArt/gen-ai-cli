@@ -51,7 +51,7 @@ export const FLOWS = {
   'video-audio': VIDEO_AUDIO_FLOW,
   'audio-from-text': AUDIO_FROM_TEXT_FLOW,
 
-  // i2i sub-categories (filter on toolId pattern)
+  // i2i sub-categories (filter on workflow/id pattern)
   'remove-bg': REMOVE_BG_FLOW,
   'change-bg': CHANGE_BG_FLOW,
   enhance: ENHANCE_FLOW,
@@ -61,7 +61,7 @@ export const FLOWS = {
   character: CHARACTER_FLOW,
   'multi-image': MULTI_IMAGE_FLOW,
 
-  // v2v sub-category (filter on toolId pattern)
+  // v2v sub-category (filter on workflow/id pattern)
   extend: EXTEND_FLOW,
 
   // text/LLM models (mode === 'text')

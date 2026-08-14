@@ -11,6 +11,7 @@
  */
 import type {
   BooleanDescriptor,
+  CatalogDescriptor,
   EnumDescriptor,
   FileDescriptor,
   ObjectDescriptor,
@@ -19,7 +20,14 @@ import type {
 } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { UsageError } from '#infra/errors/usage.ts';
-import { autoNumberIndexField, camelToKebab, coerceToDescriptor, kebabToCamel, subfieldFlagName } from './coercion.ts';
+import {
+  autoNumberIndexField,
+  camelToKebab,
+  coerceToDescriptor,
+  humanizeKey,
+  kebabToCamel,
+  subfieldFlagName,
+} from './coercion.ts';
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  camelToKebab                                                              */
@@ -51,6 +59,28 @@ describe('camelToKebab', () => {
 
   it('preserves digits', () => {
     expect(camelToKebab('image2Url')).toBe('image2-url');
+  });
+
+  it('splits acronym runs at the next word boundary (imageURLList → image-url-list)', () => {
+    expect(camelToKebab('imageURL')).toBe('image-url');
+    expect(camelToKebab('imageURLList')).toBe('image-url-list');
+    expect(camelToKebab('HDRMode')).toBe('hdr-mode');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  humanizeKey                                                               */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+describe('humanizeKey', () => {
+  it.each([
+    ['aspectRatio', 'Aspect Ratio'],
+    ['cfg-scale', 'Cfg Scale'],
+    ['keep_original_sound', 'Keep Original Sound'],
+    ['prompt', 'Prompt'],
+    ['imageURL', 'Image URL'],
+  ])('%s → %s', (input, expected) => {
+    expect(humanizeKey(input)).toBe(expected);
   });
 });
 
@@ -199,6 +229,17 @@ describe('coerceToDescriptor — enum<number>', () => {
     expect(() => coerceToDescriptor('7', desc)).toThrow(UsageError);
     expect(() => coerceToDescriptor(7, desc)).toThrow(UsageError);
   });
+
+  it('rejects an empty or whitespace string (Number("") === 0 must not sneak in)', () => {
+    const withZero: EnumDescriptor<number> = {
+      kind: 'enum',
+      valueType: 'number',
+      options: [{ id: 0 }, { id: 5 }],
+      default: 0,
+    };
+    expect(() => coerceToDescriptor('', withZero)).toThrow(UsageError);
+    expect(() => coerceToDescriptor('   ', withZero)).toThrow(UsageError);
+  });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -293,6 +334,45 @@ describe('coerceToDescriptor — range', () => {
       default: undefined as unknown as number,
     };
     expect(coerceToDescriptor('42', seedDesc)).toBe(42);
+  });
+
+  it('rejects an empty or whitespace string (Number("") === 0 is in range here)', () => {
+    expect(() => coerceToDescriptor('', desc)).toThrow(UsageError);
+    expect(() => coerceToDescriptor('   ', desc)).toThrow(UsageError);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  coerceToDescriptor — kind: catalog                                        */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+describe('coerceToDescriptor — catalog', () => {
+  // Free-string id served by a platform catalog task (SDK 5: voiceId, videoId).
+  // The live catalog is the source of truth, so membership is never validated —
+  // only the type.
+  const desc: CatalogDescriptor = {
+    kind: 'catalog',
+    source: { workflow: 'heygen/v1/catalog/voices' },
+    default: 'vx_default',
+  };
+
+  it('accepts any string id without membership validation', () => {
+    expect(coerceToDescriptor('vx_123', desc)).toBe('vx_123');
+    expect(coerceToDescriptor('anything-goes', desc)).toBe('anything-goes');
+  });
+
+  it('rejects non-string values', () => {
+    expect(() => coerceToDescriptor(42, desc)).toThrow(UsageError);
+    expect(() => coerceToDescriptor(true, desc)).toThrow(UsageError);
+  });
+
+  it('rejects an empty string (an id must be non-empty)', () => {
+    expect(() => coerceToDescriptor('', desc)).toThrow(UsageError);
+  });
+
+  it('treats null/undefined as "not provided"', () => {
+    expect(coerceToDescriptor(null, desc)).toBeUndefined();
+    expect(coerceToDescriptor(undefined, desc)).toBeUndefined();
   });
 });
 

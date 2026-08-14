@@ -35,7 +35,7 @@ For pure-shape flows (one SDK `InputType` = one flow), the predicate is one line
 modelFilter: (m) => m.inputType === '<t2v|i2v|tts|...>' && m.disabled !== true
 ```
 
-For finer-grained flows that subset an InputType (e.g. `remove-bg` inside `i2i`), the predicate combines `inputType` with `toolId` / `id` checks. Those are added in a later batch.
+For finer-grained flows that subset an InputType (e.g. `remove-bg` inside `i2i`), the predicate combines `inputType` with `workflow` / `id` checks via `workflow-match`.
 
 ## Current registry
 
@@ -55,9 +55,9 @@ For finer-grained flows that subset an InputType (e.g. `remove-bg` inside `i2i`)
 | `video-audio` | v2a | video |
 | `audio-from-text` | t2a | prompt |
 
-### Sub-category (InputType + toolId pattern via `tool-id-match`)
+### Sub-category (InputType + workflow pattern via `workflow-match`)
 
-| id | InputType | toolId pattern | Inputs |
+| id | InputType | workflow pattern | Inputs |
 |---|---|---|---|
 | `remove-bg` | i2i | `picsart-sod`, `removebg` | image |
 | `change-bg` | i2i | `picsart-change-bg`, `replace-bg` | image, prompt |

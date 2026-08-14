@@ -1,6 +1,6 @@
 # `gen-ai extend` — extend an existing video
 
-v2v sub-category — VEO, Sora-2, LTX, Grok extension models. Formally `inputType: 'v2v'`, but the toolId names the operation explicitly.
+v2v sub-category — VEO, Sora-2, LTX, Grok extension models. Formally `inputType: 'v2v'`, but the workflow (or model id) names the operation explicitly.
 
 ## Discriminator
 

@@ -117,6 +117,7 @@ function descriptorDefault(desc: ParamDescriptor): unknown {
   switch (desc.kind) {
     case 'enum':
     case 'boolean':
+    case 'catalog':
       return desc.default;
     case 'range':
       return desc.default;

@@ -75,10 +75,12 @@ export const FILES_KEY_BY_SDK_KEY: Readonly<Record<string, { filesKey: string; i
  * Walk every file-kind descriptor in `catalog` and verify each is wired
  * through the resolver and both executor paths.
  *
- * The presence check is textual (`sources.X.includes('files.<slot>')`).
- * A refactor that destructures `files` (e.g. `const { videos } = files`)
- * would fool the grep — guard against that with a regression unit test
- * on the resolver shape.
+ * The presence check is textual — a word-boundary regex on
+ * `files.<slot>`, NOT a plain substring: `files.videos` must never count
+ * as wiring for the singular `files.video` slot. A refactor that
+ * destructures `files` (e.g. `const { videos } = files`) would still
+ * fool the grep — guard against that with a regression unit test on the
+ * resolver shape.
  */
 export function findFileWiringGaps(catalog: Catalog, sources: ResolverSources): readonly FileWiringGap[] {
   const gaps: FileWiringGap[] = [];
@@ -100,10 +102,10 @@ export function findFileWiringGaps(catalog: Catalog, sources: ResolverSources): 
       continue;
     }
 
-    const needle = `files.${mapping.filesKey}`;
-    const resolverMiss = !sources.resolver.includes(needle);
-    const executeMiss = !sources.execute.includes(needle);
-    const validateMiss = !sources.validate.includes(needle);
+    const needle = slotNeedle(mapping.filesKey);
+    const resolverMiss = !needle.test(sources.resolver);
+    const executeMiss = !needle.test(sources.execute);
+    const validateMiss = !needle.test(sources.validate);
 
     if (resolverMiss || executeMiss || validateMiss) {
       gaps.push({
@@ -119,4 +121,12 @@ export function findFileWiringGaps(catalog: Catalog, sources: ResolverSources): 
   }
 
   return gaps;
+}
+
+/**
+ * `files.<slot>` with an identifier boundary after the slot name, so a
+ * wired `files.videos` never masquerades as the singular `files.video`.
+ */
+function slotNeedle(filesKey: string): RegExp {
+  return new RegExp(`files\\.${filesKey}(?![A-Za-z0-9_$])`);
 }

@@ -20,6 +20,7 @@ function surface(flag: string, descriptor: ObjectDescriptor): ParamSurface {
     models: [],
     requiredInModels: [],
     perModelLabels: new Map(),
+    descriptorsByModel: new Map(),
     conflicts: [],
   };
 }
@@ -33,6 +34,7 @@ function nonObjectSurface(): ParamSurface {
     models: [],
     requiredInModels: [],
     perModelLabels: new Map(),
+    descriptorsByModel: new Map(),
     conflicts: [],
   };
 }
@@ -59,6 +61,12 @@ describe('interpretObjectArray — single-field', () => {
 
   it('throws when item count exceeds array.max', () => {
     expect(() => interpretObjectArray({ voice: ['a', 'b', 'c'] }, voiceList)).toThrow(UsageError);
+  });
+
+  it('the too-many-items error names the actual flag (--voice, not --voice-*)', () => {
+    // Single-field objects expose ONE flag named after the parent — there
+    // are no `--voice-<subfield>` flags to point at.
+    expect(() => interpretObjectArray({ voice: ['a', 'b', 'c'] }, voiceList)).toThrow(/--voice accepts at most 2/);
   });
 });
 
@@ -152,6 +160,18 @@ describe('interpretObjectArray — multi-field', () => {
         shotSurface,
       ),
     ).toThrow(UsageError);
+  });
+
+  it('the too-many-items error names the subfield flag family (--shot-*)', () => {
+    expect(() =>
+      interpretObjectArray(
+        {
+          'shot-prompt': new Array(7).fill('p'),
+          'shot-duration': new Array(7).fill('5'),
+        },
+        shotSurface,
+      ),
+    ).toThrow(/--shot-\* accepts at most 6/);
   });
 
   it('bubbles up coercion errors from primitives (e.g. range bound)', () => {

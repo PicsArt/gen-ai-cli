@@ -14,7 +14,12 @@
  *   enum         → { kind: 'select', choices: [{id,label}], default? }
  *   range        → { kind: 'number', min, max, default? }
  *   boolean      → { kind: 'confirm', default? }
- *   file         → skipped (file pipeline owns these)
+ *   catalog      → { kind: 'catalog', source, default? } — free-string id;
+ *                  `source` names the platform catalog task a runner can
+ *                  query for live options
+ *   file         → { kind: 'file', accept, multi, arrayMax? } — emitted so
+ *                  a runner knows a file input exists; the file pipeline
+ *                  owns resolution (wizard-reader skips these answers)
  *   object       → { kind: 'object', fields: WizardStep[], arrayMax? }
  *
  * Top-level steps inherit `required` from
@@ -26,7 +31,14 @@
  * insertion / reordering is a composition-layer concern (e.g. a
  * downstream wizard-runner block) — wizard-schema stays pure.
  */
-import type { EnumDescriptor, FileDescriptor, ObjectDescriptor, ParamDescriptor } from '@picsart/ai-sdk';
+import type {
+  CatalogDescriptor,
+  EnumDescriptor,
+  FileDescriptor,
+  ObjectDescriptor,
+  ParamDescriptor,
+} from '@picsart/ai-sdk';
+import { humanizeKey } from '../../01-primitives/02-coercion/index.ts';
 import type { Catalog, ParamSurface } from '../../02-catalog/index.ts';
 
 export type SelectChoice<T extends string | number> = {
@@ -46,6 +58,15 @@ export type WizardStep =
     }
   | { kind: 'number'; key: string; label: string; required?: boolean; min: number; max: number; default?: number }
   | { kind: 'confirm'; key: string; label: string; required?: boolean; default?: boolean }
+  | {
+      kind: 'catalog';
+      key: string;
+      label: string;
+      required?: boolean;
+      /** Platform catalog task serving live options, e.g. 'heygen/v1/catalog/voices'. */
+      source: string;
+      default?: string;
+    }
   | {
       kind: 'file';
       key: string;
@@ -115,11 +136,36 @@ function descriptorToStep(
       );
     case 'boolean':
       return withRequired({ kind: 'confirm', key, label, default: descriptor.default }, required);
+    case 'catalog':
+      return withRequired(makeCatalogStep(key, label, descriptor), required);
     case 'object':
       return withRequired(makeObjectStep(key, label, descriptor), required);
     case 'file':
       return withRequired(makeFileStep(key, label, descriptor), required);
+    default:
+      return unreachableKind(descriptor);
   }
+}
+
+/**
+ * Compile-time exhaustiveness guard — a new SDK descriptor kind fails the
+ * build here instead of silently emitting no step.
+ */
+function unreachableKind(descriptor: never): never {
+  throw new Error(`descriptorToStep: unhandled descriptor kind '${(descriptor as ParamDescriptor).kind}'`);
+}
+
+function makeCatalogStep(key: string, label: string, descriptor: CatalogDescriptor): WizardStep {
+  const step: WizardStep = {
+    kind: 'catalog',
+    key,
+    label,
+    source: descriptor.source.workflow,
+  };
+  if (descriptor.default !== undefined) {
+    return { ...step, default: descriptor.default };
+  }
+  return step;
 }
 
 function makeFileStep(key: string, label: string, descriptor: FileDescriptor): WizardStep {
@@ -199,22 +245,6 @@ function makeObjectStep(key: string, label: string, descriptor: ObjectDescriptor
 }
 
 /**
- * `image_url` → `"Image Url"`, `prompt` → `"Prompt"`,
- * `keep_original_sound` → `"Keep Original Sound"`. Used for subfield
- * labels because SDK descriptors only declare a label at the top
- * level, not per subfield.
- */
-function humanizeKey(key: string): string {
-  return key
-    .replace(/[-_]+/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .split(/\s+/)
-    .map((w) => (w.length === 0 ? '' : w[0].toUpperCase() + w.slice(1)))
-    .join(' ')
-    .trim();
-}
-
-/**
  * Subfield "required" = "this subfield has no default" — the same rule
  * the interpret-half (interpret/objects.ts) uses to decide whether to
  * throw when the value is missing at a populated index.
@@ -225,6 +255,7 @@ function hasDefault(desc: ParamDescriptor): boolean {
     case 'boolean':
       return desc.default !== undefined;
     case 'range':
+    case 'catalog':
       return desc.default !== undefined;
     default:
       return false; // text, file, object have no inherent default

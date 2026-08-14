@@ -5,12 +5,12 @@
  * produce one with an audio track. Discriminator:
  * `model.inputType === 'v2a'`.
  */
-import { defineFlow } from '../../01-flow-spec/index.ts';
+import { defineFlow, modelAvailable } from '../../01-flow-spec/index.ts';
 
 export const VIDEO_AUDIO_FLOW = defineFlow({
   id: 'video-audio',
   description: 'Add a generated audio track to an existing video',
-  modelFilter: (m) => m.inputType === 'v2a' && m.disabled !== true,
+  modelFilter: (m) => m.inputType === 'v2a' && modelAvailable(m),
   staticFlagGroups: ['universal', 'output', 'model', 'directory-input'],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: ['video'],

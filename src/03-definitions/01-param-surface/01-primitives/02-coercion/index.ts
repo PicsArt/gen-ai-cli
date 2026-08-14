@@ -3,6 +3,7 @@ export {
   autoNumberIndexField,
   camelToKebab,
   coerceToDescriptor,
+  humanizeKey,
   kebabToCamel,
   subfieldFlagName,
 } from './coercion.ts';
