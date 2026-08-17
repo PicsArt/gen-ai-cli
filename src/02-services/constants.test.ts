@@ -146,7 +146,9 @@ describe('OAuth URL helpers', () => {
   });
 
   it('keeps an explicit port when stripping the api label', () => {
-    process.env.GEN_AI_API_URL = 'https://api-stage.example.com:8443';
+    // A neutral region label here: the GitHub mirror guard blocks anything
+    // resembling a non-production endpoint, even on a fake example.com host.
+    process.env.GEN_AI_API_URL = 'https://api-eu.example.com:8443';
     expect(getOAuthAuthUrl()).toBe('https://example.com:8443/sso');
   });
 

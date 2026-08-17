@@ -230,6 +230,35 @@ describe('handleOutput — history', () => {
     // must not import layer-5 modules.
   });
 
+  it('records array media (videoUrls/audioUrls) and frame/Kling slots from params', async () => {
+    // Regression: only imageUrls/videoUrl/audioUrl were persisted, so replaying
+    // a generation with array or frame/Kling file inputs silently lost them.
+    await handleOutput(
+      done({
+        params: {
+          prompt: 'extend this',
+          videoUrls: ['https://x/v1.mp4', 'https://x/v2.mp4'],
+          audioUrls: ['https://x/a1.mp3'],
+          startFrame: 'https://x/s.png',
+          endFrame: 'https://x/e.png',
+          staticMask: 'https://x/m.png',
+          sceneImage: 'https://x/scene.png',
+          styleImage: 'https://x/style.png',
+        },
+      }),
+      cfg(),
+      deps,
+    );
+    const [entry] = appendHistoryMock.mock.calls[0] as [HistoryEntry];
+    expect(entry.videoUrls).toEqual(['https://x/v1.mp4', 'https://x/v2.mp4']);
+    expect(entry.audioUrls).toEqual(['https://x/a1.mp3']);
+    expect(entry.startFrame).toBe('https://x/s.png');
+    expect(entry.endFrame).toBe('https://x/e.png');
+    expect(entry.staticMask).toBe('https://x/m.png');
+    expect(entry.sceneImage).toBe('https://x/scene.png');
+    expect(entry.styleImage).toBe('https://x/style.png');
+  });
+
   it('swallows history failure silently', async () => {
     appendHistoryMock.mockImplementation(() => {
       throw new Error('disk full');

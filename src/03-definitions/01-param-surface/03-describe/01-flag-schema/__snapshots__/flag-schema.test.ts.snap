@@ -124,6 +124,20 @@ exports[`generateFlagsFromCatalog — real SDK snapshot > produces a stable flag
     "allowNo": null,
     "char": null,
     "multiple": false,
+    "name": "bitrate",
+    "options": [
+      "32000",
+      "64000",
+      "128000",
+      "256000",
+    ],
+    "type": "option",
+  },
+  {
+    "aliases": null,
+    "allowNo": null,
+    "char": null,
+    "multiple": false,
     "name": "bitrate-level",
     "options": [
       "low",

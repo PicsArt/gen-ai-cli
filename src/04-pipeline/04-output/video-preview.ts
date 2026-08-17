@@ -3,6 +3,7 @@
  * Non-blocking: silently returns undefined if ffmpeg is unavailable or extraction fails.
  */
 import { execFileSync } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
 import * as fs from 'node:fs';
 import { isIP } from 'node:net';
 import * as os from 'node:os';
@@ -34,10 +35,15 @@ export function isSafeUrl(raw: string): boolean {
   if (host === 'localhost') return false;
 
   const ipVersion = isIP(host);
-  if (ipVersion === 0) return true; // regular hostname
+  if (ipVersion === 0) return true; // regular hostname — resolved check is isSafeUrlResolved's job
 
+  return !isPrivateAddress(host, ipVersion);
+}
+
+/** Same range checks for literal-IP hosts and DNS-resolved addresses. */
+function isPrivateAddress(host: string, ipVersion: number): boolean {
   if (ipVersion === 4) {
-    return !(
+    return (
       host === '0.0.0.0' ||
       host.startsWith('0.') ||
       host.startsWith('127.') ||
@@ -50,13 +56,42 @@ export function isSafeUrl(raw: string): boolean {
   }
 
   // IPv6: loopback, link-local, unique-local, IPv4-mapped
-  return !(
+  return (
     host === '::1' ||
     host.startsWith('fe80') ||
     host.startsWith('fc') ||
     host.startsWith('fd') ||
     host.startsWith('::ffff:')
   );
+}
+
+/**
+ * isSafeUrl + DNS resolution: a lexically-clean hostname can still resolve
+ * to a private or loopback address (attacker-controlled DNS), so every
+ * resolved address must pass the same range checks as literal IPs.
+ * Resolution failure counts as unsafe — the preview is best-effort anyway.
+ *
+ * This narrows but cannot fully close the rebinding TOCTOU: ffmpeg
+ * re-resolves the hostname itself, so a DNS answer that flips between our
+ * check and ffmpeg's fetch still gets through. Pinning the vetted IP is not
+ * practical with https + ffmpeg (certificate hostname validation).
+ * Exported for testing.
+ */
+export async function isSafeUrlResolved(raw: string): Promise<boolean> {
+  if (!isSafeUrl(raw)) return false;
+  const host = new URL(raw).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (isIP(host) !== 0) return true; // literal IP — already vetted above
+  try {
+    const addresses = await lookup(host, { all: true });
+    if (!Array.isArray(addresses) || addresses.length === 0) return false;
+    return addresses.every((a) => {
+      const addr = a.address.toLowerCase();
+      const v = isIP(addr);
+      return v !== 0 && !isPrivateAddress(addr, v);
+    });
+  } catch {
+    return false;
+  }
 }
 
 function hasFfmpeg(): boolean {
@@ -83,7 +118,7 @@ interface UploadOpts {
  */
 export async function captureVideoPreview(videoUrl: string, opts: UploadOpts): Promise<string | undefined> {
   if (!hasFfmpeg()) return undefined;
-  if (!isSafeUrl(videoUrl)) return undefined;
+  if (!(await isSafeUrlResolved(videoUrl))) return undefined;
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-preview-'));
   const tmpFrame = path.join(tmpDir, 'frame.jpg');

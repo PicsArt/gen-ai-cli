@@ -23,6 +23,15 @@ export interface HistoryEntry {
   imageUrls?: string[];
   videoUrl?: string;
   audioUrl?: string;
+  /** Array media slots (e.g. seedance video-extend refs, seed-audio refs). */
+  videoUrls?: string[];
+  audioUrls?: string[];
+  /** Frame and Kling single-file slots — replayed as their respective flags. */
+  startFrame?: string;
+  endFrame?: string;
+  staticMask?: string;
+  sceneImage?: string;
+  styleImage?: string;
   resultUrl?: string;
   /** Full result URL including query params — used for chaining (e.g., extend --times). */
   rawResultUrl?: string;
@@ -125,6 +134,13 @@ export function appendHistory(entry: HistoryEntry): void {
     imageUrls: entry.imageUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,
     videoUrl: sanitizeUrl(entry.videoUrl),
     audioUrl: sanitizeUrl(entry.audioUrl),
+    videoUrls: entry.videoUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,
+    audioUrls: entry.audioUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,
+    startFrame: sanitizeUrl(entry.startFrame),
+    endFrame: sanitizeUrl(entry.endFrame),
+    staticMask: sanitizeUrl(entry.staticMask),
+    sceneImage: sanitizeUrl(entry.sceneImage),
+    styleImage: sanitizeUrl(entry.styleImage),
     resultUrls: entry.resultUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,
   };
   const entries = loadHistory();

@@ -359,4 +359,44 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
 
     expect(out).toEqual({ multiPrompt: previous });
   });
+
+  it('object (bare, non-array): declining the replace-gate keeps the previous object', async () => {
+    // Regression: only ARRAY previous values were passed to runObjectStep, so a
+    // bare-object value (e.g. loraWeights) got no keep-gate in edit mode — the
+    // wizard treated it as unset and re-asked from scratch.
+    schemaStepsMock.value = [
+      {
+        kind: 'object',
+        key: 'loraWeights',
+        label: 'LoRA Weights',
+        required: false,
+        fields: [{ kind: 'text', key: 'model', label: 'Model' }],
+      },
+    ];
+    const previous = { model: 'style-v2', weight: 0.8 };
+    confirmWithNavMock.mockResolvedValue(false); // "keep current"
+
+    const out = await promptForParams(model, emptyCtx, { loraWeights: previous });
+
+    expect(out).toEqual({ loraWeights: previous });
+    expect(askWithNavMock).not.toHaveBeenCalled(); // never re-asked subfields
+  });
+
+  it('object (bare, non-array): accepting the replace-gate re-runs the sub-wizard', async () => {
+    schemaStepsMock.value = [
+      {
+        kind: 'object',
+        key: 'loraWeights',
+        label: 'LoRA Weights',
+        required: false,
+        fields: [{ kind: 'text', key: 'model', label: 'Model' }],
+      },
+    ];
+    confirmWithNavMock.mockResolvedValue(true); // "replace"
+    askWithNavMock.mockResolvedValueOnce('style-v3');
+
+    const out = await promptForParams(model, emptyCtx, { loraWeights: { model: 'style-v2' } });
+
+    expect(out).toEqual({ loraWeights: { model: 'style-v3' } });
+  });
 });

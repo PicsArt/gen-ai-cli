@@ -177,9 +177,16 @@ function buildRunnerStep(s: SchemaStep, previous?: unknown): WizardStep | undefi
     }
 
     case 'object': {
-      const prevItems =
-        Array.isArray(previous) && previous.length > 0 ? (previous as Record<string, unknown>[]) : undefined;
-      return { id: s.key, run: () => runObjectStep(s, prevItems) };
+      // Previous value can be an item ARRAY (multiPrompt) or ONE bare object
+      // (loraWeights — SDK `array` undefined). Both must reach runObjectStep,
+      // or edit mode silently treats the existing value as unset.
+      const prev =
+        Array.isArray(previous) && previous.length > 0
+          ? (previous as Record<string, unknown>[])
+          : !Array.isArray(previous) && typeof previous === 'object' && previous !== null
+            ? (previous as Record<string, unknown>)
+            : undefined;
+      return { id: s.key, run: () => runObjectStep(s, prev) };
     }
 
     case 'file':
@@ -231,13 +238,15 @@ async function askNumeric(
  */
 async function runObjectStep(
   s: Extract<SchemaStep, { kind: 'object' }>,
-  previous?: Record<string, unknown>[],
+  previous?: Record<string, unknown>[] | Record<string, unknown>,
 ): Promise<NavResult<Record<string, unknown>[] | Record<string, unknown> | undefined>> {
-  // Edit mode with existing items: offer to keep them. Declining the
-  // replace-gate returns the PREVIOUS items — never silently drops them.
+  // Edit mode with an existing value (item array or one bare object): offer
+  // to keep it. Declining the replace-gate returns the PREVIOUS value —
+  // never silently drops it.
   if (previous) {
+    const detail = Array.isArray(previous) ? `${previous.length} item${previous.length === 1 ? '' : 's'}` : 'set';
     const replace = await confirmWithNav({
-      message: `Replace ${s.label}? (currently ${previous.length} item${previous.length === 1 ? '' : 's'})`,
+      message: `Replace ${s.label}? (currently ${detail})`,
       default: false,
     });
     if (replace === BACK || replace === CANCEL) return replace;

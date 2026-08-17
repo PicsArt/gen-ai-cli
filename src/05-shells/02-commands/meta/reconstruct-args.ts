@@ -60,6 +60,16 @@ export function reconstructGenerateArgs(entry: HistoryEntry, overrides: ReplayOv
   for (const url of entry.imageUrls ?? []) args.push('--image', url);
   if (entry.videoUrl) args.push('--video', entry.videoUrl);
   if (entry.audioUrl) args.push('--audio', entry.audioUrl);
+  // Array media slots (multiple:true flags — one occurrence per URL) and the
+  // frame/Kling single-file slots. Without these, replaying e.g. a
+  // seedance-2.0-video-extend run silently dropped its reference videos.
+  for (const url of entry.videoUrls ?? []) args.push('--video-urls', url);
+  for (const url of entry.audioUrls ?? []) args.push('--audio-urls', url);
+  if (entry.startFrame) args.push('--start-frame', entry.startFrame);
+  if (entry.endFrame) args.push('--end-frame', entry.endFrame);
+  if (entry.staticMask) args.push('--static-mask', entry.staticMask);
+  if (entry.sceneImage) args.push('--scene-image', entry.sceneImage);
+  if (entry.styleImage) args.push('--style-image', entry.styleImage);
 
   if (overrides.silent) args.push('--silent');
   if (overrides.download) args.push('--download', overrides.download);

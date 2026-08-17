@@ -115,6 +115,31 @@ describe('appendHistory — URL sanitization', () => {
     expect(saved.audioUrl).toBe('https://cdn.example.com/a.mp3');
   });
 
+  it('strips query strings from array slots (videoUrls/audioUrls) and single-file slots', () => {
+    // Regression: array media inputs and frame/Kling slots weren't persisted at
+    // all, so redo/replay silently dropped them; once persisted they must be
+    // sanitized like every other input URL.
+    appendHistory(
+      entry({
+        videoUrls: ['https://cdn.example.com/v1.mp4?t=x', 'https://cdn.example.com/v2.mp4?t=x'],
+        audioUrls: ['https://cdn.example.com/a1.mp3?t=x'],
+        startFrame: 'https://cdn.example.com/s.png?t=x',
+        endFrame: 'https://cdn.example.com/e.png?t=x',
+        staticMask: 'https://cdn.example.com/m.png?t=x',
+        sceneImage: 'https://cdn.example.com/scene.png?t=x',
+        styleImage: 'https://cdn.example.com/style.png?t=x',
+      }),
+    );
+    const saved = loadHistory()[0];
+    expect(saved.videoUrls).toEqual(['https://cdn.example.com/v1.mp4', 'https://cdn.example.com/v2.mp4']);
+    expect(saved.audioUrls).toEqual(['https://cdn.example.com/a1.mp3']);
+    expect(saved.startFrame).toBe('https://cdn.example.com/s.png');
+    expect(saved.endFrame).toBe('https://cdn.example.com/e.png');
+    expect(saved.staticMask).toBe('https://cdn.example.com/m.png');
+    expect(saved.sceneImage).toBe('https://cdn.example.com/scene.png');
+    expect(saved.styleImage).toBe('https://cdn.example.com/style.png');
+  });
+
   it('strips query strings from resultUrls (multi-result) entries too', () => {
     // Regression: resultUrls used to be written raw, persisting pre-signed tokens.
     appendHistory(

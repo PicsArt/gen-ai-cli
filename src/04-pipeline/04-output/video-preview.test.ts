@@ -9,10 +9,18 @@
  *   - Rejects private / loopback / link-local hostnames (SSRF guard)
  *   - Returns undefined on any internal failure (never throws)
  */
-import { describe, expect, it } from 'vitest';
-import { captureVideoPreview, isSafeUrl } from './video-preview.ts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const lookupMock = vi.hoisted(() => vi.fn());
+vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
+
+import { captureVideoPreview, isSafeUrl, isSafeUrlResolved } from './video-preview.ts';
 
 const opts = { token: 't', uid: 'u', uploadUrl: 'https://upload.example.com' };
+
+afterEach(() => {
+  lookupMock.mockReset();
+});
 
 describe('captureVideoPreview — URL validation', () => {
   it('rejects http:// URLs', async () => {
@@ -80,6 +88,64 @@ describe('isSafeUrl — IP checks must not string-match real domain names', () =
     expect(isSafeUrl('https://[fd12::1]/v.mp4')).toBe(false);
     expect(isSafeUrl('https://[fe80::1]/v.mp4')).toBe(false);
     expect(isSafeUrl('https://localhost/v.mp4')).toBe(false);
+  });
+});
+
+describe('isSafeUrlResolved — DNS resolution guard', () => {
+  // A lexically-clean hostname can still resolve to a private or loopback
+  // address (attacker-controlled DNS). The resolved addresses must pass the
+  // same range checks as literal IPs. This narrows but cannot fully close
+  // the rebinding TOCTOU — ffmpeg re-resolves on its own.
+  it('rejects a hostname that resolves to loopback', async () => {
+    lookupMock.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+    expect(await isSafeUrlResolved('https://evil.example.com/v.mp4')).toBe(false);
+  });
+
+  it('rejects a hostname that resolves to a private range', async () => {
+    lookupMock.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
+    expect(await isSafeUrlResolved('https://internal.example.com/v.mp4')).toBe(false);
+  });
+
+  it('rejects when ANY resolved address is private (multi-A rebinding shape)', async () => {
+    lookupMock.mockResolvedValue([
+      { address: '93.184.216.34', family: 4 },
+      { address: '169.254.169.254', family: 4 },
+    ]);
+    expect(await isSafeUrlResolved('https://rebind.example.com/v.mp4')).toBe(false);
+  });
+
+  it('rejects a hostname that resolves to private IPv6', async () => {
+    lookupMock.mockResolvedValue([{ address: 'fd12::1', family: 6 }]);
+    expect(await isSafeUrlResolved('https://v6.example.com/v.mp4')).toBe(false);
+  });
+
+  it('accepts a hostname that resolves only to public addresses', async () => {
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+    expect(await isSafeUrlResolved('https://cdn.example.com/v.mp4')).toBe(true);
+  });
+
+  it('rejects when resolution fails (offline/NXDOMAIN — preview is best-effort)', async () => {
+    lookupMock.mockRejectedValue(new Error('ENOTFOUND'));
+    expect(await isSafeUrlResolved('https://nxdomain.example.com/v.mp4')).toBe(false);
+  });
+
+  it('skips the lookup for literal IPs (already vetted lexically)', async () => {
+    expect(await isSafeUrlResolved('https://93.184.216.34/v.mp4')).toBe(true);
+    expect(await isSafeUrlResolved('https://10.0.0.1/v.mp4')).toBe(false);
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+
+  it('still applies the lexical checks first', async () => {
+    expect(await isSafeUrlResolved('http://example.com/v.mp4')).toBe(false);
+    expect(await isSafeUrlResolved('https://localhost/v.mp4')).toBe(false);
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('captureVideoPreview — DNS resolution guard', () => {
+  it('returns undefined for a hostname resolving to loopback', async () => {
+    lookupMock.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+    expect(await captureVideoPreview('https://evil.example.com/v.mp4', opts)).toBeUndefined();
   });
 });
 

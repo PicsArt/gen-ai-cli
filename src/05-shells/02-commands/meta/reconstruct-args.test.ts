@@ -55,6 +55,37 @@ describe('reconstructGenerateArgs', () => {
     expect(args).toContain('--generate-audio');
   });
 
+  it('replays array media inputs as repeated --video-urls / --audio-urls flags', () => {
+    const args = reconstructGenerateArgs(
+      entry({
+        videoUrls: ['https://x/v1.mp4', 'https://x/v2.mp4'],
+        audioUrls: ['https://x/a1.mp3'],
+      }),
+    );
+    // One flag occurrence per URL, each immediately followed by its value.
+    expect(args.filter((a) => a === '--video-urls')).toHaveLength(2);
+    expect(args[args.indexOf('--video-urls') + 1]).toBe('https://x/v1.mp4');
+    expect(args[args.lastIndexOf('--video-urls') + 1]).toBe('https://x/v2.mp4');
+    expect(flagValue(args, '--audio-urls')).toBe('https://x/a1.mp3');
+  });
+
+  it('replays frame and Kling single-file slots', () => {
+    const args = reconstructGenerateArgs(
+      entry({
+        startFrame: 'https://x/s.png',
+        endFrame: 'https://x/e.png',
+        staticMask: 'https://x/m.png',
+        sceneImage: 'https://x/scene.png',
+        styleImage: 'https://x/style.png',
+      }),
+    );
+    expect(flagValue(args, '--start-frame')).toBe('https://x/s.png');
+    expect(flagValue(args, '--end-frame')).toBe('https://x/e.png');
+    expect(flagValue(args, '--static-mask')).toBe('https://x/m.png');
+    expect(flagValue(args, '--scene-image')).toBe('https://x/scene.png');
+    expect(flagValue(args, '--style-image')).toBe('https://x/style.png');
+  });
+
   it('omits prompt when the entry has none and no override is given', () => {
     const args = reconstructGenerateArgs(entry({ prompt: undefined }));
     expect(args).not.toContain('--prompt');
