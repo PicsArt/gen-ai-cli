@@ -20,6 +20,7 @@ export interface FileStepFlags {
   'static-mask'?: string;
   'scene-image'?: string;
   'style-image'?: string;
+  'style-reference-urls'?: string[];
   prompt?: string;
 }
 
@@ -27,10 +28,11 @@ type FileStepCtx = Partial<GenerationContext> & {
   staticMask?: string;
   sceneImage?: string;
   styleImage?: string;
+  styleReferenceUrls?: string[];
 };
 
 export async function runFileStep(
-  _deps: CliDeps,
+  deps: CliDeps,
   model: ModelDefinition,
   flags: FileStepFlags,
 ): Promise<ResolvedInputs['files']> {
@@ -68,9 +70,12 @@ export async function runFileStep(
   if (flags['style-image']) {
     ctx.styleImage = flags['style-image'];
   }
+  if (flags['style-reference-urls']?.length) {
+    ctx.styleReferenceUrls = flags['style-reference-urls'];
+  }
 
   // Pre-fetch Drive media for the model
-  const drive = await prefetchDriveMedia(model);
+  const drive = await prefetchDriveMedia(deps.out, model);
 
   // Prompt for any missing file inputs
   const updates = await promptForInputFiles(model, ctx, drive, { promptProvided });
@@ -89,5 +94,6 @@ export async function runFileStep(
     staticMask: merged.staticMask,
     sceneImage: merged.sceneImage,
     styleImage: merged.styleImage,
+    styleReferences: merged.styleReferenceUrls,
   };
 }

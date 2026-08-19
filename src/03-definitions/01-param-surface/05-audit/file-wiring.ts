@@ -69,6 +69,7 @@ export const FILES_KEY_BY_SDK_KEY: Readonly<Record<string, { filesKey: string; i
   staticMask: { filesKey: 'staticMask', isArray: false },
   sceneImage: { filesKey: 'sceneImage', isArray: false },
   styleImage: { filesKey: 'styleImage', isArray: false },
+  styleReferenceUrls: { filesKey: 'styleReferences', isArray: true },
 };
 
 /**

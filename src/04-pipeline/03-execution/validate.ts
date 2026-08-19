@@ -32,6 +32,7 @@ export function validateDryRun(inputs: ResolvedInputs): ValidationResult {
   if (inputs.files.staticMask) ctx.staticMask = inputs.files.staticMask;
   if (inputs.files.sceneImage) ctx.sceneImage = inputs.files.sceneImage;
   if (inputs.files.styleImage) ctx.styleImage = inputs.files.styleImage;
+  if (inputs.files.styleReferences?.length) ctx.styleReferenceUrls = inputs.files.styleReferences;
 
   const result = Models.validate(inputs.model.id, ctx);
   const schema = Models.toSchema(inputs.model.id);

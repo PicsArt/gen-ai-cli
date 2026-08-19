@@ -119,3 +119,42 @@ describe('promptForInputFiles — audioUrls array slot', () => {
     expect(updates.audioUrls).toBeUndefined();
   });
 });
+
+describe('promptForInputFiles — styleReferenceUrls image-array slot', () => {
+  // recraft v4 style models (recraftv4_styles*) are t2i and declare their ONLY
+  // (required) file input as `styleReferenceUrls`. Without wizard support the
+  // interactive path early-returns and the model rejects at submit with
+  // `"styleReferenceUrls" is required`.
+  it('collects style references for a t2i model that declares only styleReferenceUrls', async () => {
+    declareSlots({ styleReferenceUrls: { required: true, max: 5, label: 'Style References' } });
+    promptImageInputsMock.mockResolvedValue(['https://cdn/ref1.png', 'https://cdn/ref2.png']);
+
+    const updates = await promptForInputFiles(makeModel('t2i'), emptyCtx);
+
+    expect((updates as { styleReferenceUrls?: string[] }).styleReferenceUrls).toEqual([
+      'https://cdn/ref1.png',
+      'https://cdn/ref2.png',
+    ]);
+    expect(promptImageInputsMock).toHaveBeenCalledWith('Style References', true, 5, undefined);
+  });
+
+  it('does not re-ask when ctx.styleReferenceUrls is already prefilled from flags', async () => {
+    declareSlots({ styleReferenceUrls: { required: true, max: 5 } });
+
+    const updates = await promptForInputFiles(makeModel('t2i'), {
+      styleReferenceUrls: ['https://cdn/from-flag.png'],
+    } as Partial<GenerationContext>);
+
+    expect(promptImageInputsMock).not.toHaveBeenCalled();
+    expect((updates as { styleReferenceUrls?: string[] }).styleReferenceUrls).toBeUndefined();
+  });
+
+  it('leaves styleReferenceUrls absent when the user picks nothing', async () => {
+    declareSlots({ styleReferenceUrls: { required: true, max: 5 } });
+    promptImageInputsMock.mockResolvedValue([]);
+
+    const updates = await promptForInputFiles(makeModel('t2i'), emptyCtx);
+
+    expect((updates as { styleReferenceUrls?: string[] }).styleReferenceUrls).toBeUndefined();
+  });
+});

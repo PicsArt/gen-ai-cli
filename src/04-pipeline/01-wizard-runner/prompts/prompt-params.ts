@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import type { DriveMediaItem, GenerationContext, ModelDefinition } from '@picsart/ai-sdk';
 import { Models } from '@picsart/ai-sdk';
 import { filterCatalog } from '#flows';
-import { getOutput } from '#infra/ui-core/output.ts';
+import type { OutputManager } from '#infra/ui-core/output.ts';
 import { AUDIO_EXTS, VIDEO_EXTS } from '#infra/utils/media-types.ts';
 import {
   collectContextFromAnswers,
@@ -50,7 +50,7 @@ export async function pickOption<T extends string | number>(
 }
 
 /** Open $EDITOR for multi-line prompt editing. Returns the text or null. */
-export function openEditorForPrompt(): string | null {
+export function openEditorForPrompt(out: OutputManager): string | null {
   const editor = process.env.EDITOR ?? process.env.VISUAL ?? 'vi';
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-prompt-'));
   const tmpFile = path.join(tmpDir, 'prompt.txt');
@@ -63,7 +63,7 @@ export function openEditorForPrompt(): string | null {
       const content = fs.readFileSync(tmpFile, 'utf-8').trim();
       return content || null;
     } catch {
-      getOutput().info('Could not read editor output');
+      out.info('Could not read editor output');
       return null;
     }
   } finally {
@@ -98,6 +98,7 @@ export function openEditorForPrompt(): string | null {
  * cancellation propagates as `BACK`; `runWizard` handles `CANCEL`.
  */
 export async function promptForParams(
+  out: OutputManager,
   model: ModelDefinition,
   ctx: Readonly<Partial<GenerationContext>>,
   previousValues?: Record<string, unknown>,
@@ -110,7 +111,7 @@ export async function promptForParams(
     if (s.kind === 'file') continue;
     if (s.key === 'prompt') continue;
     if ((ctx as Record<string, unknown>)[s.key] != null) continue;
-    const step = buildRunnerStep(s, previousValues?.[s.key]);
+    const step = buildRunnerStep(out, s, previousValues?.[s.key]);
     if (step !== undefined) steps.push(step);
   }
 
@@ -131,7 +132,7 @@ export async function promptForParams(
 /*  Schema step → runner step (kind dispatcher)                           */
 /* ─────────────────────────────────────────────────────────────────────── */
 
-function buildRunnerStep(s: SchemaStep, previous?: unknown): WizardStep | undefined {
+function buildRunnerStep(out: OutputManager, s: SchemaStep, previous?: unknown): WizardStep | undefined {
   switch (s.kind) {
     case 'select': {
       if (s.choices.length === 0) return undefined;
@@ -173,7 +174,7 @@ function buildRunnerStep(s: SchemaStep, previous?: unknown): WizardStep | undefi
 
     case 'number': {
       const def = typeof previous === 'number' ? previous : s.default;
-      return { id: s.key, run: () => askNumeric(s.label, s.min, s.max, def) };
+      return { id: s.key, run: () => askNumeric(out, s.label, s.min, s.max, def) };
     }
 
     case 'object': {
@@ -186,7 +187,7 @@ function buildRunnerStep(s: SchemaStep, previous?: unknown): WizardStep | undefi
           : !Array.isArray(previous) && typeof previous === 'object' && previous !== null
             ? (previous as Record<string, unknown>)
             : undefined;
-      return { id: s.key, run: () => runObjectStep(s, prev) };
+      return { id: s.key, run: () => runObjectStep(out, s, prev) };
     }
 
     case 'file':
@@ -195,6 +196,7 @@ function buildRunnerStep(s: SchemaStep, previous?: unknown): WizardStep | undefi
 }
 
 async function askNumeric(
+  out: OutputManager,
   label: string,
   min: number,
   max: number,
@@ -209,9 +211,9 @@ async function askNumeric(
     if (!val) return defaultVal;
     const num = Number(val);
     if (!Number.isNaN(num) && num >= min && num <= max) return num;
-    getOutput().info(`Invalid: must be ${min}–${max}.`);
+    out.info(`Invalid: must be ${min}–${max}.`);
   }
-  getOutput().info(defaultVal != null ? `Using default ${defaultVal}.` : 'Skipping.');
+  out.info(defaultVal != null ? `Using default ${defaultVal}.` : 'Skipping.');
   return defaultVal;
 }
 
@@ -237,6 +239,7 @@ async function askNumeric(
  * Cancelling the sub-wizard bubbles up as BACK to the outer wizard.
  */
 async function runObjectStep(
+  out: OutputManager,
   s: Extract<SchemaStep, { kind: 'object' }>,
   previous?: Record<string, unknown>[] | Record<string, unknown>,
 ): Promise<NavResult<Record<string, unknown>[] | Record<string, unknown> | undefined>> {
@@ -262,7 +265,7 @@ async function runObjectStep(
   // Non-array object (SDK: `array` undefined = ONE bare object, e.g.
   // loraWeights) — no "how many?" loop, collect a single record.
   if (!s.array) {
-    const single = await runObjectItem(s, 0, 1);
+    const single = await runObjectItem(out, s, 0, 1);
     return single === null ? BACK : single;
   }
 
@@ -277,7 +280,7 @@ async function runObjectStep(
 
   const items: Record<string, unknown>[] = [];
   for (let i = 0; i < count; i++) {
-    const subAnswers = await runObjectItem(s, i, count);
+    const subAnswers = await runObjectItem(out, s, i, count);
     if (subAnswers === null) return BACK;
     if (subAnswers !== undefined) items.push(subAnswers);
   }
@@ -291,6 +294,7 @@ async function runObjectStep(
  * fight the positional convention.
  */
 async function runObjectItem(
+  out: OutputManager,
   s: Extract<SchemaStep, { kind: 'object' }>,
   i: number,
   count: number,
@@ -298,19 +302,21 @@ async function runObjectItem(
   const subRunnerSteps: WizardStep[] = [];
   for (const sub of s.fields) {
     if (sub.key === 'index') continue;
-    const ss = buildRunnerStep(sub);
+    const ss = buildRunnerStep(out, sub);
     if (ss !== undefined) subRunnerSteps.push(ss);
   }
   if (subRunnerSteps.length === 0) return undefined;
 
-  getOutput().info(`\n${s.label} ${i + 1}/${count}`);
+  out.info(`\n${s.label} ${i + 1}/${count}`);
   return runWizard(subRunnerSteps);
 }
 
 /** Pre-fetch Drive media for all input types the model supports. */
-export async function prefetchDriveMedia(model: ModelDefinition): Promise<DrivePrefetch> {
+export async function prefetchDriveMedia(out: OutputManager, model: ModelDefinition): Promise<DrivePrefetch> {
   const prefetch: DrivePrefetch = {};
-  const imgParam = Models.getFileParam(model.id, 'imageUrls');
+  // `styleReferenceUrls` (recraft v4 style models) is an image-array slot, so
+  // it wants Drive images too even when the model declares no `imageUrls`.
+  const imgParam = Models.getFileParam(model.id, 'imageUrls') ?? Models.getFileParam(model.id, 'styleReferenceUrls');
   // Array slots (videoUrls / audioUrls) want Drive media too — seedance
   // extend and seed-audio models declare only those.
   const vidParam = Models.getFileParam(model.id, 'videoUrl') ?? Models.getFileParam(model.id, 'videoUrls');
@@ -326,7 +332,7 @@ export async function prefetchDriveMedia(model: ModelDefinition): Promise<DriveP
     if (videos) prefetch.videos = videos;
     if (audios) prefetch.audios = audios;
   } catch {
-    getOutput().info('Could not load Drive files — showing local files only');
+    out.info('Could not load Drive files — showing local files only');
   }
 
   return prefetch;
@@ -421,18 +427,30 @@ export async function promptForInputFiles(
   // their media input ONLY through these.
   const vidsP = Models.getFileParam(model.id, 'videoUrls');
   const audsP = Models.getFileParam(model.id, 'audioUrls');
+  // Image-array slot — recraft v4 style models (recraftv4_styles*) declare
+  // their ONLY (required) file input this way. Without it the wizard would
+  // early-return and never collect the style references, and the model then
+  // rejects at submit with `"styleReferenceUrls" is required`.
+  const styleRefsP = Models.getFileParam(model.id, 'styleReferenceUrls');
+  const ctxStyleRefs = (ctx as { styleReferenceUrls?: string[] }).styleReferenceUrls;
   // Treat startFrame as an image input for prompting purposes
   const effectiveImgP = imgP ?? sfP;
-  if (!effectiveImgP && !vidP && !audP && !vidsP && !audsP) return {};
+  if (!effectiveImgP && !vidP && !audP && !vidsP && !audsP && !styleRefsP) return {};
 
   const hasOptionalFiles =
     (effectiveImgP && !effectiveImgP.required) ||
     (vidP && !vidP.required) ||
     (audP && !audP.required) ||
     (vidsP && !vidsP.required) ||
-    (audsP && !audsP.required);
+    (audsP && !audsP.required) ||
+    (styleRefsP && !styleRefsP.required);
   const hasRequiredFiles =
-    effectiveImgP?.required || vidP?.required || audP?.required || vidsP?.required || audsP?.required;
+    effectiveImgP?.required ||
+    vidP?.required ||
+    audP?.required ||
+    vidsP?.required ||
+    audsP?.required ||
+    styleRefsP?.required;
   const isTextPrimary = model.inputType.startsWith('t');
   const ctxHasAnyFile = Boolean(
     ctx.imageUrls?.length ||
@@ -440,7 +458,8 @@ export async function promptForInputFiles(
       ctx.videoUrl ||
       ctx.audioUrl ||
       ctx.videoUrls?.length ||
-      ctx.audioUrls?.length,
+      ctx.audioUrls?.length ||
+      ctxStyleRefs?.length,
   );
 
   // If model has both text-only and file-input modes, let user choose —
@@ -469,7 +488,7 @@ export async function promptForInputFiles(
 
   if (!useFiles) return {};
 
-  const updates: Partial<GenerationContext> = {};
+  const updates: Partial<GenerationContext> & { styleReferenceUrls?: string[] } = {};
 
   // Image input: models use either imageUrls or startFrame (+ optional endFrame)
   const usesStartFrame = !imgP && !!sfP;
@@ -507,6 +526,18 @@ export async function promptForInputFiles(
   }
   if (audsP) {
     Object.assign(updates, await promptMediaUrlsInputs('audio', model, ctx, drive));
+  }
+
+  // Style references — image-array input (recraft v4 style models). Reuses the
+  // image prompt (Drive picker + local upload) since references are images.
+  if (styleRefsP && !ctxStyleRefs?.length) {
+    const values = await promptImageInputs(
+      styleRefsP.label || 'Style References',
+      !!styleRefsP.required,
+      styleRefsP.max,
+      drive,
+    );
+    if (values.length > 0) updates.styleReferenceUrls = values;
   }
 
   return updates;

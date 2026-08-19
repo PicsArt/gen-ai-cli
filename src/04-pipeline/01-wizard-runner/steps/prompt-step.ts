@@ -40,7 +40,7 @@ export async function runPromptStep(
 
   // Handle $EDITOR escape sequence
   if (result === '\x00editor') {
-    const editorResult = openEditorForPrompt();
+    const editorResult = openEditorForPrompt(deps.out);
     if (!editorResult?.trim()) {
       deps.out.warn('Editor produced no content');
       return BACK;

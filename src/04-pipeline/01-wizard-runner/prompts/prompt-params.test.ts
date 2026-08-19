@@ -42,10 +42,14 @@ vi.mock('#infra/ui-core/output.ts', async () => {
   return { ...real, getOutput: () => ({ info: outputInfoMock }) };
 });
 
+import type { OutputManager } from '#infra/ui-core/output.ts';
 import { promptForParams } from './prompt-params.ts';
 
 const model: ModelDefinition = { id: 'm-1', name: 'Model 1' } as ModelDefinition;
 const emptyCtx: Partial<GenerationContext> = {};
+// Explicit output dep (no singletons) — `.info` is the only method these
+// prompts use; route it to the shared spy so print assertions still work.
+const testOut = { info: outputInfoMock } as unknown as OutputManager;
 
 afterEach(() => {
   schemaStepsMock.value = [];
@@ -62,7 +66,7 @@ afterEach(() => {
 describe('promptForParams — empty schema', () => {
   it('returns {} when the model has no descriptor steps', async () => {
     schemaStepsMock.value = [];
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({});
   });
 });
@@ -85,7 +89,7 @@ describe('promptForParams — scalar dispatch', () => {
       },
     ];
     selectWithNavMock.mockResolvedValue('9:16');
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(selectWithNavMock).toHaveBeenCalledOnce();
     expect(out).toEqual({ aspectRatio: '9:16' });
   });
@@ -93,7 +97,7 @@ describe('promptForParams — scalar dispatch', () => {
   it('routes `confirm` kind through confirmWithNav', async () => {
     schemaStepsMock.value = [{ kind: 'confirm', key: 'generateAudio', label: 'Generate audio?', default: false }];
     confirmWithNavMock.mockResolvedValue(true);
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(confirmWithNavMock).toHaveBeenCalled();
     expect(out).toEqual({ generateAudio: true });
   });
@@ -101,14 +105,14 @@ describe('promptForParams — scalar dispatch', () => {
   it('routes `text` kind through askWithNav and skips empty answers', async () => {
     schemaStepsMock.value = [{ kind: 'text', key: 'negativePrompt', label: 'Negative prompt' }];
     askWithNavMock.mockResolvedValue('no birds');
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({ negativePrompt: 'no birds' });
   });
 
   it('routes `number` kind through askWithNav with bounds and default', async () => {
     schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG scale', min: 0, max: 1, default: 0.5 }];
     askWithNavMock.mockResolvedValue('0.7');
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({ cfgScale: 0.7 });
   });
 
@@ -117,7 +121,7 @@ describe('promptForParams — scalar dispatch', () => {
   it('re-asks on out-of-range number input and accepts the corrected value', async () => {
     schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
     askWithNavMock.mockResolvedValueOnce('7.5').mockResolvedValueOnce('0.7');
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({ cfgScale: 0.7 });
     expect(askWithNavMock).toHaveBeenCalledTimes(2);
     expect(outputInfoMock).toHaveBeenCalled();
@@ -126,14 +130,14 @@ describe('promptForParams — scalar dispatch', () => {
   it('falls back to the default after repeated invalid number input', async () => {
     schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
     askWithNavMock.mockResolvedValue('not-a-number');
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({ cfgScale: 0.5 });
   });
 
   it('blank number input immediately uses the default', async () => {
     schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
     askWithNavMock.mockResolvedValue('');
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({ cfgScale: 0.5 });
     expect(askWithNavMock).toHaveBeenCalledTimes(1);
   });
@@ -154,21 +158,21 @@ describe('promptForParams — skipping rules', () => {
         multi: true,
       },
     ];
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({});
     expect(askWithNavMock).not.toHaveBeenCalled();
   });
 
   it("skips the `prompt` key (owned by the prompt step's rich command box)", async () => {
     schemaStepsMock.value = [{ kind: 'text', key: 'prompt', label: 'Prompt' }];
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect(out).toEqual({});
     expect(askWithNavMock).not.toHaveBeenCalled();
   });
 
   it('skips keys already set in the incoming ctx (prefilled from flags)', async () => {
     schemaStepsMock.value = [{ kind: 'text', key: 'negativePrompt', label: 'Negative' }];
-    const out = await promptForParams(model, { negativePrompt: 'no birds' } as Partial<GenerationContext>);
+    const out = await promptForParams(testOut, model, { negativePrompt: 'no birds' } as Partial<GenerationContext>);
     expect(out).toEqual({});
     expect(askWithNavMock).not.toHaveBeenCalled();
   });
@@ -202,7 +206,7 @@ describe('promptForParams — object descriptors', () => {
       .mockResolvedValueOnce('close-up') // item 2 prompt
       .mockResolvedValueOnce('7'); // item 2 duration
 
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
 
     expect(typeof out).toBe('object');
     const params = out as Record<string, unknown>;
@@ -232,7 +236,7 @@ describe('promptForParams — object descriptors', () => {
       .mockResolvedValueOnce('first')
       .mockResolvedValueOnce('second');
 
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     const arr = (out as Record<string, unknown>).multiPrompt as Array<{ prompt?: string }>;
     expect(arr).toHaveLength(2); // capped at arrayMax
   });
@@ -250,7 +254,7 @@ describe('promptForParams — object descriptors', () => {
       },
     ];
     confirmWithNavMock.mockResolvedValueOnce(false);
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect((out as Record<string, unknown>).multiPrompt).toEqual([]);
     expect(askWithNavMock).not.toHaveBeenCalled(); // never reached "How many?"
   });
@@ -270,7 +274,7 @@ describe('promptForParams — object descriptors', () => {
     askWithNavMock
       .mockResolvedValueOnce('1') // how many
       .mockResolvedValueOnce('wide shot'); // item 1 prompt
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     const arr = (out as Record<string, unknown>).multiPrompt as Array<{ prompt?: string }>;
     expect(arr).toEqual([{ prompt: 'wide shot' }]);
   });
@@ -288,7 +292,7 @@ describe('promptForParams — object descriptors', () => {
     ];
     confirmWithNavMock.mockResolvedValueOnce(true);
     askWithNavMock.mockResolvedValueOnce('0'); // user types 0 at "how many?"
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
     expect((out as Record<string, unknown>).multiPrompt).toEqual([]);
   });
 });
@@ -318,7 +322,7 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
     ];
     selectWithNavMock.mockResolvedValue('9:16');
 
-    await promptForParams(model, emptyCtx, { aspectRatio: '9:16' });
+    await promptForParams(testOut, model, emptyCtx, { aspectRatio: '9:16' });
 
     expect(selectWithNavMock).toHaveBeenCalledWith(expect.objectContaining({ default: '9:16' }));
   });
@@ -327,7 +331,7 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
     schemaStepsMock.value = [{ kind: 'number', key: 'cfgScale', label: 'CFG', min: 0, max: 1, default: 0.5 }];
     askWithNavMock.mockResolvedValue('');
 
-    const out = await promptForParams(model, emptyCtx, { cfgScale: 0.9 });
+    const out = await promptForParams(testOut, model, emptyCtx, { cfgScale: 0.9 });
 
     expect(out).toEqual({ cfgScale: 0.9 });
   });
@@ -336,7 +340,7 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
     schemaStepsMock.value = [{ kind: 'confirm', key: 'generateAudio', label: 'Generate audio?', default: false }];
     confirmWithNavMock.mockResolvedValue(true);
 
-    await promptForParams(model, emptyCtx, { generateAudio: true });
+    await promptForParams(testOut, model, emptyCtx, { generateAudio: true });
 
     expect(confirmWithNavMock).toHaveBeenCalledWith(expect.objectContaining({ default: true }));
   });
@@ -355,7 +359,7 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
     const previous = [{ prompt: 'wide shot', duration: 5 }];
     confirmWithNavMock.mockResolvedValue(false); // "keep current"
 
-    const out = await promptForParams(model, emptyCtx, { multiPrompt: previous });
+    const out = await promptForParams(testOut, model, emptyCtx, { multiPrompt: previous });
 
     expect(out).toEqual({ multiPrompt: previous });
   });
@@ -376,7 +380,7 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
     const previous = { model: 'style-v2', weight: 0.8 };
     confirmWithNavMock.mockResolvedValue(false); // "keep current"
 
-    const out = await promptForParams(model, emptyCtx, { loraWeights: previous });
+    const out = await promptForParams(testOut, model, emptyCtx, { loraWeights: previous });
 
     expect(out).toEqual({ loraWeights: previous });
     expect(askWithNavMock).not.toHaveBeenCalled(); // never re-asked subfields
@@ -395,7 +399,7 @@ describe('promptForParams — previous values as defaults (edit mode)', () => {
     confirmWithNavMock.mockResolvedValue(true); // "replace"
     askWithNavMock.mockResolvedValueOnce('style-v3');
 
-    const out = await promptForParams(model, emptyCtx, { loraWeights: { model: 'style-v2' } });
+    const out = await promptForParams(testOut, model, emptyCtx, { loraWeights: { model: 'style-v2' } });
 
     expect(out).toEqual({ loraWeights: { model: 'style-v3' } });
   });

@@ -173,6 +173,7 @@ export interface ResolvedFiles {
   staticMask?: string;
   sceneImage?: string;
   styleImage?: string;
+  styleReferences?: string[];
 }
 
 export interface InputFiles {
@@ -186,6 +187,7 @@ export interface InputFiles {
   staticMask?: string;
   sceneImage?: string;
   styleImage?: string;
+  styleReferences?: string[];
 }
 
 async function resolveArray(arr: string[] | undefined, opts: UploadOptions): Promise<string[] | undefined> {
@@ -203,18 +205,42 @@ async function resolveOptional(value: string | undefined, opts: UploadOptions): 
  * multi-image input shouldn't pay per-file round-trip latency serially.
  */
 export async function resolveAllFiles(files: InputFiles, opts: UploadOptions): Promise<ResolvedFiles> {
-  const [images, videos, audios, startFrame, endFrame, video, audio, staticMask, sceneImage, styleImage] =
-    await Promise.all([
-      resolveArray(files.images, opts),
-      resolveArray(files.videos, opts),
-      resolveArray(files.audios, opts),
-      resolveOptional(files.startFrame, opts),
-      resolveOptional(files.endFrame, opts),
-      resolveOptional(files.video, opts),
-      resolveOptional(files.audio, opts),
-      resolveOptional(files.staticMask, opts),
-      resolveOptional(files.sceneImage, opts),
-      resolveOptional(files.styleImage, opts),
-    ]);
-  return { images, videos, audios, startFrame, endFrame, video, audio, staticMask, sceneImage, styleImage };
+  const [
+    images,
+    videos,
+    audios,
+    startFrame,
+    endFrame,
+    video,
+    audio,
+    staticMask,
+    sceneImage,
+    styleImage,
+    styleReferences,
+  ] = await Promise.all([
+    resolveArray(files.images, opts),
+    resolveArray(files.videos, opts),
+    resolveArray(files.audios, opts),
+    resolveOptional(files.startFrame, opts),
+    resolveOptional(files.endFrame, opts),
+    resolveOptional(files.video, opts),
+    resolveOptional(files.audio, opts),
+    resolveOptional(files.staticMask, opts),
+    resolveOptional(files.sceneImage, opts),
+    resolveOptional(files.styleImage, opts),
+    resolveArray(files.styleReferences, opts),
+  ]);
+  return {
+    images,
+    videos,
+    audios,
+    startFrame,
+    endFrame,
+    video,
+    audio,
+    staticMask,
+    sceneImage,
+    styleImage,
+    styleReferences,
+  };
 }

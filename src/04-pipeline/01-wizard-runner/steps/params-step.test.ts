@@ -92,6 +92,9 @@ describe('runParamsStep — edit mode', () => {
 
     await runParamsStep(deps, model, {}, { duration: 10, aspectRatio: '9:16' });
 
-    expect(promptForParamsMock).toHaveBeenCalledWith(model, expect.anything(), { duration: 10, aspectRatio: '9:16' });
+    expect(promptForParamsMock).toHaveBeenCalledWith(deps.out, model, expect.anything(), {
+      duration: 10,
+      aspectRatio: '9:16',
+    });
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@picsart/gen-ai",
-  "version": "2.64.0",
+  "version": "2.65.0",
   "type": "module",
   "description": "Picsart AI CLI — generate images, video, and audio from the terminal",
   "license": "MIT",
@@ -34,7 +34,7 @@
     "@inquirer/search": "^4.1.6",
     "@inquirer/select": "^5.1.2",
     "@oclif/core": "^4.10.3",
-    "@picsart/ai-sdk": "^5.4.0",
+    "@picsart/ai-sdk": "^5.10.0",
     "chalk": "^5.0.0",
     "cli-progress": "^3.12.0",
     "fflate": "^0.8.2",

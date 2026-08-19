@@ -123,6 +123,15 @@ export async function resolveScripted(
   if (videoUrls) files.videos = videoUrls;
   const audioUrls = cleanArray('--audio-urls', flags['audio-urls'] as string[] | undefined);
   if (audioUrls) files.audios = audioUrls;
+  // Style-reference inputs use the consolidated `styleReferenceUrls` array
+  // descriptor (recraft v4 style models). Same bridge as `--video-urls`:
+  // Param Surface auto-derives the `--style-reference-urls` flag but the
+  // flag-reader skips `file` kinds, so we thread it into the file pipeline here.
+  const styleReferenceUrls = cleanArray(
+    '--style-reference-urls',
+    flags['style-reference-urls'] as string[] | undefined,
+  );
+  if (styleReferenceUrls) files.styleReferences = styleReferenceUrls;
   // Kling-specific single-file slots (V3 motion brush + multi-image scene/style refs).
   // Same shape as `--start-frame` / `--end-frame` — one string per flag.
   if (flags['static-mask']) {

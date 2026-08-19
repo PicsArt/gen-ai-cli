@@ -33,10 +33,13 @@ vi.mock('#param-surface', async () => {
   return { ...real, getCatalog: () => real.loadCatalog([MODEL_OBJECT], ALIAS_MAP) };
 });
 
+import type { OutputManager } from '#infra/ui-core/output.ts';
 import { promptForParams } from './prompt-params.ts';
 
 const model: ModelDefinition = { id: 'fx-object', name: 'Object Model' } as ModelDefinition;
 const emptyCtx: Partial<GenerationContext> = {};
+// Explicit output dep (no singletons); prints are irrelevant to this spec.
+const testOut = { info: vi.fn() } as unknown as OutputManager;
 
 afterEach(() => {
   askWithNavMock.mockReset();
@@ -54,7 +57,7 @@ describe('promptForParams — answers run through the layer-3 wizard-reader', ()
       .mockResolvedValueOnce('close-up') // item 2 prompt
       .mockResolvedValueOnce('7'); // item 2 duration
 
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
 
     expect(out).toEqual({
       multiPrompt: [
@@ -71,7 +74,7 @@ describe('promptForParams — answers run through the layer-3 wizard-reader', ()
       .mockResolvedValueOnce('solo shot') // prompt
       .mockResolvedValueOnce('5'); // duration
 
-    await promptForParams(model, emptyCtx);
+    await promptForParams(testOut, model, emptyCtx);
 
     const asked = askWithNavMock.mock.calls.map((c) => String(c[0]));
     expect(asked.some((label) => /index/i.test(label))).toBe(false);
@@ -80,7 +83,7 @@ describe('promptForParams — answers run through the layer-3 wizard-reader', ()
   it('a declined optional object step is omitted from the ctx (not an empty array)', async () => {
     confirmWithNavMock.mockResolvedValueOnce(false); // decline the gate
 
-    const out = await promptForParams(model, emptyCtx);
+    const out = await promptForParams(testOut, model, emptyCtx);
 
     expect(out).toEqual({});
   });

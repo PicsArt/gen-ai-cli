@@ -49,6 +49,7 @@ export async function execute(
     ...(files.staticMask ? { staticMask: files.staticMask } : {}),
     ...(files.sceneImage ? { sceneImage: files.sceneImage } : {}),
     ...(files.styleImage ? { styleImage: files.styleImage } : {}),
+    ...(files.styleReferences && files.styleReferences.length > 0 ? { styleReferenceUrls: files.styleReferences } : {}),
   };
 
   const model = inputs.model;

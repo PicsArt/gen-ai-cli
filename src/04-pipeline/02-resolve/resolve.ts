@@ -225,6 +225,7 @@ function hasAnyFile(files: ResolvedInputs['files']): boolean {
       files.audios?.length ||
       files.staticMask ||
       files.sceneImage ||
-      files.styleImage,
+      files.styleImage ||
+      files.styleReferences?.length,
   );
 }

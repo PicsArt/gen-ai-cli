@@ -17,7 +17,7 @@ import { buildParamsFromFlags } from '#pipeline/02-resolve/types.ts';
 import type { CliDeps } from '#root/deps.ts';
 
 export async function runParamsStep(
-  _deps: CliDeps,
+  deps: CliDeps,
   model: ModelDefinition,
   flags: Record<string, unknown>,
   previousParams?: Record<string, unknown>,
@@ -45,7 +45,7 @@ export async function runParamsStep(
   // values instead of resetting to descriptor defaults.
   if (previousParams) {
     const editCtx: Partial<GenerationContext> = {} as Partial<GenerationContext>;
-    const result = await promptForParams(model, editCtx, previousParams);
+    const result = await promptForParams(deps.out, model, editCtx, previousParams);
 
     if (result === BACK || result === CANCEL) return result;
 
@@ -59,7 +59,7 @@ export async function runParamsStep(
     ...fromFlags,
   } as Partial<GenerationContext>;
 
-  const result = await promptForParams(model, ctx);
+  const result = await promptForParams(deps.out, model, ctx);
 
   if (result === BACK || result === CANCEL) return result;
 

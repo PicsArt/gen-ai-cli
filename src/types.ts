@@ -32,6 +32,8 @@ export interface ResolvedInputs {
     sceneImage?: string;
     /** Style reference image for Kling multi-image-to-image. Populated by `--style-image`. */
     styleImage?: string;
+    /** Array of style reference images (-> SDK `styleReferenceUrls`). Populated by `--style-reference-urls`. */
+    styleReferences?: string[];
   };
 }
 
