@@ -37,8 +37,12 @@ import { getDeviceId } from './device-id.ts';
 /**
  * Pulse app name. Drives both the wire `header.app` field and the device-id
  * storage path (~/Library/Application Support/pulse-cli-sdk/<app>/device-id).
+ *
+ * Reverse-DNS identifier registered on the Pulse receiver — the analytics
+ * platform keys events by this exact string, so it must match the registered
+ * app id (`com.picsart.apps.genai`), not the CLI's npm/bin name (`gen-ai`).
  */
-const PULSE_APP_NAME = 'gen-ai';
+const PULSE_APP_NAME = 'com.picsart.apps.genai';
 
 /**
  * Pulse SDK version — required by TrackerServerConfiguration, lands on the

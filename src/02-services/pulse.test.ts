@@ -3,7 +3,7 @@
  *
  * Contracts:
  *   createPulseClient(opts):
- *     - passes app: 'gen-ai' and the supplied appVersion
+ *     - passes app: 'com.picsart.apps.genai' and the supplied appVersion
  *     - resolves and passes sdkVersion from @pulse/server's package.json
  *     - applies PULSE_SERVER_URL override when set, omits it otherwise
  *
@@ -88,7 +88,7 @@ describe('createPulseClient', () => {
     createPulseClient({ appVersion: '1.2.3' });
     expect(createClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        app: 'gen-ai',
+        app: 'com.picsart.apps.genai',
         tracker: expect.objectContaining({
           appVersion: '1.2.3',
           // Resolved from @pulse/server/package.json at module load.
