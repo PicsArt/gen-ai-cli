@@ -40,9 +40,9 @@ import { getDeviceId } from './device-id.ts';
  *
  * Reverse-DNS identifier registered on the Pulse receiver — the analytics
  * platform keys events by this exact string, so it must match the registered
- * app id (`com.picsart.apps.genai`), not the CLI's npm/bin name (`gen-ai`).
+ * app id (`com.picsart.apps.cli`), not the CLI's npm/bin name (`gen-ai`).
  */
-const PULSE_APP_NAME = 'com.picsart.apps.genai';
+const PULSE_APP_NAME = 'com.picsart.apps.cli';
 
 /**
  * Pulse SDK version — required by TrackerServerConfiguration, lands on the
