@@ -2,13 +2,17 @@
  * Spec for the generation analytics helper.
  *
  * Contracts:
- *   trackGenerationCompleted(ctx):
+ *   trackGenerationStarted(ctx):
+ *     - fires one Pulse event named 'cli_generation_started'
+ *     - includes flow_id, model_id/name/vendor, sanitized params, files
+ *
+ *   trackGenerationCompleted(ctx) — success path (with `result`):
  *     - fires one Pulse event named 'cli_generation_completed'
  *     - includes flow_id, model_id/name, status, duration_ms, task_id, result_count
  *     - includes sanitized params and summarized files
  *
- *   trackGenerationFailed(ctx):
- *     - fires one Pulse event named 'cli_generation_failed'
+ *   trackGenerationCompleted(ctx) — failure path (with `error` + `status`):
+ *     - fires the SAME 'cli_generation_completed' event, status='failed'/'cancelled'
  *     - includes error_name (constructor name) and error_message
  *     - handles non-Error throwables (strings, numbers)
  *     - tolerates missing inputs (resolve-time failure path)
@@ -31,7 +35,7 @@ const pulseEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@pulse/core', () => ({ pulse: { event: pulseEventMock } }));
 
-import { trackGenerationCompleted, trackGenerationFailed } from './track-generation.ts';
+import { trackGenerationCompleted, trackGenerationStarted } from './track-generation.ts';
 
 beforeEach(() => {
   pulseEventMock.mockReset();
@@ -77,7 +81,50 @@ function lastEventData(): Record<string, unknown> {
   return call.data;
 }
 
-/* ── trackGenerationCompleted ────────────────────────────────── */
+/* ── trackGenerationStarted ──────────────────────────────────── */
+
+describe('trackGenerationStarted', () => {
+  it('fires one cli_generation_started event with model + params + files', () => {
+    trackGenerationStarted({
+      flow: makeFlow(),
+      flags: {},
+      inputs: makeInputs({ files: { images: ['a', 'b'] } }),
+    });
+
+    expect(pulseEventMock).toHaveBeenCalledTimes(1);
+    const call = pulseEventMock.mock.calls[0][0] as {
+      event: string;
+      data: Record<string, unknown>;
+    };
+    expect(call.event).toBe('cli_generation_started');
+    expect(call.data).toMatchObject({
+      flow_id: 'image',
+      model_id: 'photon',
+      model_name: 'Photon',
+      model_vendor: 'luma',
+      params: { prompt: 'cat', width: 1024 },
+      files: { images_count: 2 },
+    });
+    // No terminal fields on the start event.
+    expect(call.data.status).toBeUndefined();
+    expect(call.data.duration_ms).toBeUndefined();
+  });
+
+  it('redacts / sanitizes params on the start event too', () => {
+    process.env.PULSE_REDACT_PROMPTS = '1';
+    trackGenerationStarted({
+      flow: makeFlow(),
+      flags: {},
+      inputs: makeInputs({ params: { prompt: 'secret', imagePath: './x.png' } }),
+    });
+
+    const params = lastEventData().params as Record<string, unknown>;
+    expect(params.prompt).toBe('[redacted]');
+    expect(params.imagePath).toBe('[file:png]');
+  });
+});
+
+/* ── trackGenerationCompleted — success path ─────────────────── */
 
 describe('trackGenerationCompleted', () => {
   it('fires one event with the expected core fields', () => {
@@ -229,34 +276,49 @@ describe('trackGenerationCompleted', () => {
   });
 });
 
-/* ── trackGenerationFailed ───────────────────────────────────── */
+/* ── trackGenerationCompleted — failure path ─────────────────── */
 
-describe('trackGenerationFailed', () => {
-  it('fires one event with error_name (constructor) and error_message', () => {
+describe('trackGenerationCompleted (failure path)', () => {
+  it('fires the same completed event with status + error_name (constructor) + error_message', () => {
     class UsageError extends Error {}
-    trackGenerationFailed({
+    trackGenerationCompleted({
       flow: makeFlow(),
       flags: {},
       inputs: makeInputs(),
+      status: 'failed',
       error: new UsageError('bad flag'),
     });
 
     expect(pulseEventMock).toHaveBeenCalledTimes(1);
     expect(pulseEventMock.mock.calls[0][0]).toMatchObject({
-      event: 'cli_generation_failed',
+      event: 'cli_generation_completed',
       data: expect.objectContaining({
         flow_id: 'image',
         model_id: 'photon',
+        status: 'failed',
         error_name: 'UsageError',
         error_message: 'bad flag',
       }),
     });
   });
 
-  it('handles non-Error throwables (string)', () => {
-    trackGenerationFailed({
+  it('carries the explicit status override (e.g. cancelled on SIGINT)', () => {
+    trackGenerationCompleted({
       flow: makeFlow(),
       flags: {},
+      inputs: makeInputs(),
+      status: 'cancelled',
+      error: new Error('User cancelled (SIGINT)'),
+    });
+
+    expect(lastEventData().status).toBe('cancelled');
+  });
+
+  it('handles non-Error throwables (string)', () => {
+    trackGenerationCompleted({
+      flow: makeFlow(),
+      flags: {},
+      status: 'failed',
       error: 'just a string',
     });
 
@@ -267,9 +329,10 @@ describe('trackGenerationFailed', () => {
   });
 
   it('handles non-Error throwables (number)', () => {
-    trackGenerationFailed({
+    trackGenerationCompleted({
       flow: makeFlow(),
       flags: {},
+      status: 'failed',
       error: 42,
     });
 
@@ -279,11 +342,21 @@ describe('trackGenerationFailed', () => {
     });
   });
 
-  it('omits model/params/files when inputs are absent (resolve failure)', () => {
-    trackGenerationFailed({
+  it('defaults status to failed when neither result nor status is provided', () => {
+    trackGenerationCompleted({
       flow: makeFlow(),
       flags: {},
       error: new Error('resolve failed'),
+    });
+
+    expect(lastEventData().status).toBe('failed');
+  });
+
+  it('omits model/params/files/error when inputs and error are absent (resolve failure)', () => {
+    trackGenerationCompleted({
+      flow: makeFlow(),
+      flags: {},
+      status: 'failed',
     });
 
     const data = lastEventData();
@@ -291,13 +364,16 @@ describe('trackGenerationFailed', () => {
     expect(data.model_name).toBeUndefined();
     expect(data.params).toBeUndefined();
     expect(data.files).toBeUndefined();
+    expect(data.error_name).toBeUndefined();
+    expect(data.error_message).toBeUndefined();
   });
 
   it('sanitizes params on the failure path too', () => {
-    trackGenerationFailed({
+    trackGenerationCompleted({
       flow: makeFlow(),
       flags: {},
       inputs: makeInputs({ params: { imageUrl: './photo.jpg' } }),
+      status: 'failed',
       error: new Error('upstream failed'),
     });
 

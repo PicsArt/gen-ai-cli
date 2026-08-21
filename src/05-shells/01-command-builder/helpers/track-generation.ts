@@ -1,11 +1,17 @@
 /**
  * Pulse analytics — generation-command instrumentation.
  *
- * Called from `runOperation()` exactly twice per invocation:
- *   - `trackGenerationCompleted` — after `execute` resolves (any status).
- *   - `trackGenerationFailed`    — from the catch branch when any pipeline
- *     step from `resolveInputs` onward throws. `inputs` is absent when the
- *     throw happened before input resolution completed (e.g. model not found).
+ * Two events per invocation, forming a start → finish funnel:
+ *
+ *   - `trackGenerationStarted`   — fired right before `execute` submits the
+ *     job to the model. Captures flow, model, params, files.
+ *   - `trackGenerationCompleted` — fired once the invocation reaches a
+ *     terminal state. Carries `status` (completed / failed / cancelled /
+ *     timeout) so success AND failure share one event; on failure it also
+ *     carries `error_name` / `error_message`. Called both from the success
+ *     path (with a `result`) and from the catch / SIGINT paths (with an
+ *     `error` and an explicit `status`). `inputs` is absent when the throw
+ *     happened before input resolution completed (e.g. model not found).
  *
  * The `pulse` proxy from `@pulse/core` resolves to the tracker set up at the
  * CLI entry point (see `src/index.ts` → `runWithPulse`). Inside that context,
@@ -25,35 +31,38 @@ import { pulse } from '@pulse/core';
 import type { FlowSpec } from '#flows';
 import type { ExecutionResult, ResolvedInputs } from '#root/types.ts';
 
-export interface TrackContext {
+export interface TrackStartContext {
   flow: FlowSpec;
   flags: Record<string, unknown>;
   inputs: ResolvedInputs;
-  result: ExecutionResult;
 }
 
-export interface TrackFailureContext {
+export interface TrackContext {
   flow: FlowSpec;
   flags: Record<string, unknown>;
   inputs?: ResolvedInputs;
-  error: unknown;
+  /** Present on the success path; absent when the pipeline threw. */
+  result?: ExecutionResult;
+  /** Present on the catch / SIGINT paths. */
+  error?: unknown;
+  /**
+   * Terminal status when there is no `result` to read it from
+   * (e.g. `'failed'` for a pipeline throw, `'cancelled'` for SIGINT).
+   * Ignored when `result` is present.
+   */
+  status?: string;
 }
 
-/* ── Success / terminal path ─────────────────────────────────── */
+/* ── Start path ──────────────────────────────────────────────── */
 
-export function trackGenerationCompleted(ctx: TrackContext): void {
+export function trackGenerationStarted(ctx: TrackStartContext): void {
   pulse.event({
-    event: 'cli_generation_completed',
+    event: 'cli_generation_started',
     data: {
       flow_id: ctx.flow.id,
       model_id: ctx.inputs.model.id,
       model_name: ctx.inputs.model.name,
       model_vendor: ctx.inputs.model.provider,
-
-      status: ctx.result.status,
-      duration_ms: ctx.result.durationMs,
-      task_id: ctx.result.taskId,
-      result_count: ctx.result.results.length,
 
       params: sanitizeParams(ctx.inputs.params),
       files: summarizeFiles(ctx.inputs.files),
@@ -61,24 +70,35 @@ export function trackGenerationCompleted(ctx: TrackContext): void {
   });
 }
 
-/* ── Error path ──────────────────────────────────────────────── */
+/* ── Terminal path (success + failure) ───────────────────────── */
 
-export function trackGenerationFailed(ctx: TrackFailureContext): void {
-  const err = ctx.error;
+export function trackGenerationCompleted(ctx: TrackContext): void {
+  const { result, error, inputs } = ctx;
+  // Status comes from the result when we have one; otherwise from the
+  // explicit override the caller passed on the throw / cancel path.
+  const status = result?.status ?? ctx.status ?? 'failed';
+
   pulse.event({
-    event: 'cli_generation_failed',
+    event: 'cli_generation_completed',
     data: {
       flow_id: ctx.flow.id,
-      model_id: ctx.inputs?.model.id,
-      model_name: ctx.inputs?.model.name,
+      model_id: inputs?.model.id,
+      model_name: inputs?.model.name,
+      model_vendor: inputs?.model.provider,
 
-      // Error class name (e.g. UsageError, AuthError, ApiError) +
-      // human-readable message. No stack — keep events small.
-      error_name: err instanceof Error ? err.constructor.name : 'Unknown',
-      error_message: err instanceof Error ? err.message : String(err),
+      status,
+      duration_ms: result?.durationMs,
+      task_id: result?.taskId,
+      result_count: result?.results.length,
 
-      params: ctx.inputs ? sanitizeParams(ctx.inputs.params) : undefined,
-      files: ctx.inputs ? summarizeFiles(ctx.inputs.files) : undefined,
+      // Failure detail, only when the invocation ended on an error. No stack —
+      // keep events small. Error class name (UsageError, AuthError, ApiError…)
+      // plus the human-readable message.
+      error_name: error === undefined ? undefined : error instanceof Error ? error.constructor.name : 'Unknown',
+      error_message: error === undefined ? undefined : error instanceof Error ? error.message : String(error),
+
+      params: inputs ? sanitizeParams(inputs.params) : undefined,
+      files: inputs ? summarizeFiles(inputs.files) : undefined,
     },
   });
 }

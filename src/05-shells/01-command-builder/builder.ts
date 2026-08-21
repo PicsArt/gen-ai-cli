@@ -53,7 +53,7 @@ import { buildOutputConfig } from './helpers/build-output-config.ts';
 import { handleCreditsError, isCreditsError } from './helpers/handle-credits-error.ts';
 import { enforceMaxCost } from './helpers/max-cost.ts';
 import { createProgressHandler } from './helpers/render-progress.ts';
-import { trackGenerationCompleted, trackGenerationFailed } from './helpers/track-generation.ts';
+import { trackGenerationCompleted, trackGenerationStarted } from './helpers/track-generation.ts';
 import { handleInputDir } from './input-dir-preflight.ts';
 
 /**
@@ -85,6 +85,12 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
   let inputs: ResolvedInputs | undefined;
   let spinner: ReturnType<typeof createSpinner> | undefined;
   let onSigint: (() => void) | undefined;
+  // Guards against a duplicate terminal event: once the generation reaches a
+  // terminal state (execute resolved), we record `cli_generation_completed`
+  // with the real status. A later throw from post-processing (handleOutput —
+  // download / Drive save / display) must NOT fire a second terminal event
+  // that would overwrite that success with status=failed.
+  let terminalTracked = false;
 
   try {
     const resolved = await resolveInputs(flow, flags, deps);
@@ -131,10 +137,11 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
       // `process.exit` kills the process before any rejection could surface.
       (async () => {
         try {
-          trackGenerationFailed({
+          trackGenerationCompleted({
             flow,
             flags,
             inputs: resolved,
+            status: 'cancelled',
             error: new Error('User cancelled (SIGINT)'),
           });
           await flushPulse();
@@ -151,17 +158,22 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
     const pollTimeoutFlag = flags['poll-timeout'];
     const pollTimeoutMs = typeof pollTimeoutFlag === 'string' ? parseDuration(pollTimeoutFlag) : undefined;
 
+    // Funnel start: we're about to submit to the model. Paired with the
+    // terminal `cli_generation_completed` event below.
+    trackGenerationStarted({ flow, flags, inputs: resolved });
+
     const result = await execute(
       resolved,
       { apiUrl, uploadUrl, authenticatedFetch: fetchFn },
       { signal: abortController.signal, onProgress: createProgressHandler(activeSpinner), pollTimeoutMs },
     );
 
-    // Fire one Pulse event per generation — captures flow, model, params,
-    // files, status, duration. Fires for every terminal status (completed /
-    // failed / cancelled / timeout) so we get a full funnel. Safe outside
-    // the catch block: the SDK swallows transport errors internally.
+    // Funnel end: one terminal event carrying the result status (completed /
+    // failed / cancelled / timeout). Safe outside the catch block: the SDK
+    // swallows transport errors internally. Mark it tracked so a downstream
+    // handleOutput throw doesn't emit a duplicate terminal event.
     trackGenerationCompleted({ flow, flags, inputs: resolved, result });
+    terminalTracked = true;
 
     if (result.status === 'completed') {
       const secs = Math.floor(result.durationMs / 1000);
@@ -182,9 +194,14 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
     if (onSigint) process.removeListener('SIGINT', onSigint);
     spinner?.stop();
 
-    // Telemetry for the failure path. `inputs` is undefined when the throw
-    // came from resolveInputs itself (e.g. model not found, invalid flag).
-    trackGenerationFailed({ flow, flags, inputs, error: err });
+    // Telemetry for the failure path — same terminal event, status=failed.
+    // `inputs` is undefined when the throw came from resolveInputs itself
+    // (e.g. model not found, invalid flag). Skipped when the generation
+    // already reached a terminal state and only post-processing threw, so we
+    // never emit two terminal events for one invocation.
+    if (!terminalTracked) {
+      trackGenerationCompleted({ flow, flags, inputs, status: 'failed', error: err });
+    }
 
     if (isCreditsError(err)) {
       // The error is swallowed (friendly billing prompt instead of a crash),

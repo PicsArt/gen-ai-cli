@@ -35,7 +35,7 @@ const spinnerInstance = vi.hoisted(() => ({
 const createSpinnerMock = vi.hoisted(() => vi.fn());
 const handleInputDirMock = vi.hoisted(() => vi.fn());
 const trackGenerationCompletedMock = vi.hoisted(() => vi.fn());
-const trackGenerationFailedMock = vi.hoisted(() => vi.fn());
+const trackGenerationStartedMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./input-dir-preflight.ts', () => ({ handleInputDir: handleInputDirMock }));
 vi.mock('#pipeline/02-resolve/resolve.ts', () => ({ resolveInputs: resolveInputsMock }));
@@ -57,7 +57,7 @@ vi.mock('./helpers/handle-credits-error.ts', () => ({
 vi.mock('./helpers/render-progress.ts', () => ({ createProgressHandler: () => vi.fn() }));
 vi.mock('./helpers/track-generation.ts', () => ({
   trackGenerationCompleted: trackGenerationCompletedMock,
-  trackGenerationFailed: trackGenerationFailedMock,
+  trackGenerationStarted: trackGenerationStartedMock,
 }));
 
 import { createOperationCommand, runOperation } from './builder.ts';
@@ -123,7 +123,7 @@ function resetAll() {
   isCreditsErrorMock.mockReset().mockReturnValue(false);
   createSpinnerMock.mockReset().mockReturnValue(spinnerInstance);
   trackGenerationCompletedMock.mockReset();
-  trackGenerationFailedMock.mockReset();
+  trackGenerationStartedMock.mockReset();
   spinnerInstance.start.mockReset();
   spinnerInstance.succeed.mockReset();
   spinnerInstance.fail.mockReset();
@@ -348,30 +348,34 @@ describe('runOperation — error handling', () => {
 /* ──────────────────────────────────────────────────────────── */
 
 describe('runOperation — analytics tracking', () => {
-  it('tracks completion with the resolved inputs on success', async () => {
+  it('tracks start then completion with the resolved inputs on success', async () => {
     resetAll();
     resolveInputsMock.mockResolvedValue(inputs);
     executeMock.mockResolvedValue(completedResult);
 
     await runOperation(flow(), {}, deps());
 
+    expect(trackGenerationStartedMock).toHaveBeenCalledTimes(1);
+    expect(trackGenerationStartedMock).toHaveBeenCalledWith(expect.objectContaining({ inputs }));
     expect(trackGenerationCompletedMock).toHaveBeenCalledTimes(1);
     expect(trackGenerationCompletedMock).toHaveBeenCalledWith(
       expect.objectContaining({ inputs, result: completedResult }),
     );
-    expect(trackGenerationFailedMock).not.toHaveBeenCalled();
   });
 
-  it('tracks a resolve-time failure with inputs undefined (e.g. model not found)', async () => {
+  it('tracks a resolve-time failure as completed with status=failed, inputs undefined', async () => {
     resetAll();
     const err = new Error('Model not found: "bogus"');
     resolveInputsMock.mockRejectedValue(err);
 
     await expect(runOperation(flow(), {}, deps())).rejects.toBe(err);
 
-    expect(trackGenerationFailedMock).toHaveBeenCalledTimes(1);
-    expect(trackGenerationFailedMock).toHaveBeenCalledWith(expect.objectContaining({ inputs: undefined, error: err }));
-    expect(trackGenerationCompletedMock).not.toHaveBeenCalled();
+    expect(trackGenerationCompletedMock).toHaveBeenCalledTimes(1);
+    expect(trackGenerationCompletedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs: undefined, status: 'failed', error: err }),
+    );
+    // Failed before submitting — no start event.
+    expect(trackGenerationStartedMock).not.toHaveBeenCalled();
   });
 
   it('does NOT track when resolveInputs returns null (user cancelled the wizard)', async () => {
@@ -380,11 +384,11 @@ describe('runOperation — analytics tracking', () => {
 
     await runOperation(flow(), {}, deps());
 
-    expect(trackGenerationFailedMock).not.toHaveBeenCalled();
+    expect(trackGenerationStartedMock).not.toHaveBeenCalled();
     expect(trackGenerationCompletedMock).not.toHaveBeenCalled();
   });
 
-  it('tracks an auth failure (after resolve) with the resolved inputs', async () => {
+  it('tracks an auth failure (after resolve) as completed with status=failed', async () => {
     resetAll();
     resolveInputsMock.mockResolvedValue(inputs);
     const err = new Error('not logged in');
@@ -392,10 +396,14 @@ describe('runOperation — analytics tracking', () => {
 
     await expect(runOperation(flow(), {}, deps())).rejects.toBe(err);
 
-    expect(trackGenerationFailedMock).toHaveBeenCalledWith(expect.objectContaining({ inputs, error: err }));
+    expect(trackGenerationCompletedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs, status: 'failed', error: err }),
+    );
+    // Auth fails before we submit — no start event.
+    expect(trackGenerationStartedMock).not.toHaveBeenCalled();
   });
 
-  it('tracks an execute failure with the resolved inputs', async () => {
+  it('tracks an execute failure as start + completed(status=failed)', async () => {
     resetAll();
     resolveInputsMock.mockResolvedValue(inputs);
     const err = new Error('boom');
@@ -403,7 +411,28 @@ describe('runOperation — analytics tracking', () => {
 
     await expect(runOperation(flow(), {}, deps())).rejects.toBe(err);
 
-    expect(trackGenerationFailedMock).toHaveBeenCalledWith(expect.objectContaining({ inputs, error: err }));
+    expect(trackGenerationStartedMock).toHaveBeenCalledTimes(1);
+    expect(trackGenerationCompletedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs, status: 'failed', error: err }),
+    );
+  });
+
+  it('does NOT emit a duplicate terminal event when handleOutput throws after a successful generation', async () => {
+    resetAll();
+    resolveInputsMock.mockResolvedValue(inputs);
+    executeMock.mockResolvedValue(completedResult);
+    const err = new Error('download failed');
+    handleOutputMock.mockRejectedValue(err);
+
+    await expect(runOperation(flow(), {}, deps())).rejects.toBe(err);
+
+    // Exactly one terminal event — the real result — and it is NOT the
+    // status=failed one from the catch block.
+    expect(trackGenerationCompletedMock).toHaveBeenCalledTimes(1);
+    expect(trackGenerationCompletedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs, result: completedResult }),
+    );
+    expect(trackGenerationCompletedMock).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }));
   });
 });
 
