@@ -57,7 +57,7 @@ export interface TrackContext {
 
 export function trackGenerationStarted(ctx: TrackStartContext): void {
   pulse.event({
-    event: 'cli_generation_started',
+    event_type: 'cli_generation_started',
     data: {
       flow_id: ctx.flow.id,
       model_id: ctx.inputs.model.id,
@@ -79,7 +79,7 @@ export function trackGenerationCompleted(ctx: TrackContext): void {
   const status = result?.status ?? ctx.status ?? 'failed';
 
   pulse.event({
-    event: 'cli_generation_completed',
+    event_type: 'cli_generation_completed',
     data: {
       flow_id: ctx.flow.id,
       model_id: inputs?.model.id,

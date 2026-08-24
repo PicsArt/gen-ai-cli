@@ -6,7 +6,7 @@
  * the entire CLI lifecycle. Inside that context, any module can
  *
  *   import { pulse } from '@pulse/core';
- *   pulse.event({ event: 'foo', data: { ... } });
+ *   pulse.event({ event_type: 'foo', data: { ... } });
  *
  * and the proxy resolves to this tracker. No deps to thread through call sites.
  *

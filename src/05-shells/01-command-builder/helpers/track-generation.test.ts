@@ -93,10 +93,10 @@ describe('trackGenerationStarted', () => {
 
     expect(pulseEventMock).toHaveBeenCalledTimes(1);
     const call = pulseEventMock.mock.calls[0][0] as {
-      event: string;
+      event_type: string;
       data: Record<string, unknown>;
     };
-    expect(call.event).toBe('cli_generation_started');
+    expect(call.event_type).toBe('cli_generation_started');
     expect(call.data).toMatchObject({
       flow_id: 'image',
       model_id: 'photon',
@@ -137,10 +137,10 @@ describe('trackGenerationCompleted', () => {
 
     expect(pulseEventMock).toHaveBeenCalledTimes(1);
     const call = pulseEventMock.mock.calls[0][0] as {
-      event: string;
+      event_type: string;
       data: Record<string, unknown>;
     };
-    expect(call.event).toBe('cli_generation_completed');
+    expect(call.event_type).toBe('cli_generation_completed');
     expect(call.data).toMatchObject({
       flow_id: 'image',
       model_id: 'photon',
@@ -291,7 +291,7 @@ describe('trackGenerationCompleted (failure path)', () => {
 
     expect(pulseEventMock).toHaveBeenCalledTimes(1);
     expect(pulseEventMock.mock.calls[0][0]).toMatchObject({
-      event: 'cli_generation_completed',
+      event_type: 'cli_generation_completed',
       data: expect.objectContaining({
         flow_id: 'image',
         model_id: 'photon',
