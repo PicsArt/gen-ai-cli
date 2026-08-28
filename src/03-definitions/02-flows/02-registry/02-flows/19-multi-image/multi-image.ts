@@ -5,8 +5,8 @@
  * discriminator is descriptor-driven instead of workflow-pattern: any
  * vendor that ships a multi-image-input model surfaces here
  * automatically — currently spans t2i (Gemini Pro/Flash Image, Flux,
- * GPT-Image, Kling Image, Seedream, Qwen), i2i (Qwen edit), i2v
- * (Pika scenes/frames, Runway gen4-ref, HappyHorse), and v2v
+ * GPT-Image, Kling Image, Seedream, Qwen), i2i (Qwen edit, Runway
+ * gen4-ref), i2v (Pixverse fusion, HappyHorse), and v2v
  * (Wan, Seedance, HappyHorse).
  */
 import type { ParamDescriptor } from '@picsart/ai-sdk';
@@ -27,7 +27,7 @@ export const MULTI_IMAGE_FLOW = defineFlow({
   requiredInputs: ['image', 'prompt'],
   examples: [
     'gen-ai multi-image -m gemini-3.1-flash-image -i a.png -i b.png -p "combine into a single hero shot"',
-    'gen-ai multi-image -m pika-2.2-scenes -i a.png -i b.png -i c.png -p "the three meet in a cafe"',
+    'gen-ai multi-image -m pixverse-v6-fusion -i a.png -i b.png -i c.png -p "the three meet in a cafe"',
     'gen-ai multi-image -m gpt-image-2 -i ref1.jpg -i ref2.jpg -p "style transfer across the references"',
   ],
 });
