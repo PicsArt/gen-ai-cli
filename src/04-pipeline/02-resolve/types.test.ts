@@ -190,13 +190,13 @@ describe('buildParamsFromFlags', () => {
   it('maps kebab-case flag names to camelCase ctx keys via the catalog', () => {
     const out = buildParamsFromFlags({
       'aspect-ratio': '16:9',
-      'cfg-scale': '0.5', // cfgScale descriptor is range [0, 1] for kling
+      'cfg-scale': '5', // cfgScale merged descriptor range is [1, 50]
       'generate-audio': true,
       'negative-prompt': 'no birds',
     });
     expect(out).toMatchObject({
       aspectRatio: '16:9',
-      cfgScale: 0.5,
+      cfgScale: 5,
       generateAudio: true,
       negativePrompt: 'no birds',
     });

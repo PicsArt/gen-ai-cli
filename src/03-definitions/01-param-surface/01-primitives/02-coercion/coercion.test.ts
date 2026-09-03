@@ -128,7 +128,6 @@ const AUDIT_KEYS = [
   'externalTaskId',
   'generateAudio',
   'guidance',
-  'humanFidelity',
   'imageReference',
   'imageUrls',
   'imageWeight',

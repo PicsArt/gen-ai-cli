@@ -47,11 +47,6 @@ exports[`ALIAS_MAP > matches snapshot 1`] = `
       "audio-gen",
     ],
   },
-  "humanFidelity": {
-    "aliases": [
-      "fidelity",
-    ],
-  },
   "imageUrls": {
     "char": "i",
     "flag": "image",

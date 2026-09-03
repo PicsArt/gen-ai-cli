@@ -85,8 +85,8 @@ export const ALIAS_MAP: AliasMap = {
   // (The old `thinkingLevel → --thinking` alias was dropped when the SDK
   // added a real `thinking` descriptor key — the alias would shadow it.
   // Use the full --thinking-level.)
-  // --human-fidelity → --fidelity (Kling face-fidelity slider).
-  humanFidelity: { aliases: ['fidelity'] },
+  // (The old `humanFidelity → --fidelity` alias was dropped when the SDK
+  // removed the Kling face-fidelity descriptor in 5.27.0.)
   // --character-orientation → --orientation (Kling motion-control).
   characterOrientation: { aliases: ['orientation'] },
   // --keep-original-sound → --keep-audio (Kling omni-video, motion-ctrl).
