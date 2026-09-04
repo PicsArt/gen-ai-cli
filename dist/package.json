@@ -1,6 +1,6 @@
 {
   "name": "@picsart/gen-ai",
-  "version": "2.75.0",
+  "version": "2.76.0",
   "type": "module",
   "description": "Picsart AI CLI — generate images, video, and audio from the terminal",
   "license": "MIT",
