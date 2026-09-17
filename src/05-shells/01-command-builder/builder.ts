@@ -52,6 +52,7 @@ import { buildDriveContext } from './helpers/build-drive-context.ts';
 import { buildOutputConfig } from './helpers/build-output-config.ts';
 import { handleCreditsError, isCreditsError } from './helpers/handle-credits-error.ts';
 import { enforceMaxCost } from './helpers/max-cost.ts';
+import { booleanFlagForms, normalizeBooleanFlagArgv } from './helpers/normalize-boolean-argv.ts';
 import { createProgressHandler } from './helpers/render-progress.ts';
 import { trackGenerationCompleted, trackGenerationStarted } from './helpers/track-generation.ts';
 import { handleInputDir } from './input-dir-preflight.ts';
@@ -235,6 +236,19 @@ export function createOperationCommand(flow: FlowSpec) {
     // values are real oclif Flag objects — the cross-block collision test
     // in `03-definitions/02-flows/03-compose/01-flag-set/` asserts that.
     static flags = composeFlagsForFlow(flow, getCatalog(), Models.list()) as never;
+
+    override async init() {
+      // Rewrite `--flag true|false` into oclif-native `--flag` / `--no-flag`
+      // BEFORE any parse. oclif boolean flags reject an explicit value, so
+      // without this `--generate-audio false` dies with "Unexpected argument:
+      // false" and the flag looks dead — the exact seedance footgun. Must run
+      // before `super.init()` because BaseCommand.init() already parses argv.
+      this.argv = normalizeBooleanFlagArgv(
+        this.argv,
+        booleanFlagForms(OperationCommand.flags as unknown as Record<string, unknown>),
+      );
+      await super.init();
+    }
 
     async run() {
       const { flags } = await this.parse(this.constructor as typeof OperationCommand);
