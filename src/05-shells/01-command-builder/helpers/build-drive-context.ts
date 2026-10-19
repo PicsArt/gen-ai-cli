@@ -8,7 +8,7 @@
  * inside `02-services/drive.ts`).
  */
 
-import { getOutput } from '#infra/ui-core/output.ts';
+import type { OutputManager } from '#infra/ui-core/output.ts';
 import type { DriveContext } from '#pipeline/04-output/drive.ts';
 import { getAiClient } from '#services/client.ts';
 import { ensureRootFolder, ensureSubfolder, saveFileToDrive } from '#services/drive.ts';
@@ -18,6 +18,7 @@ export async function buildDriveContext(opts: {
   uid: string;
   uploadUrl: string;
   driveFolder?: string;
+  out: OutputManager;
 }): Promise<DriveContext | undefined> {
   try {
     const folderUid = opts.driveFolder ? await ensureSubfolder(opts.driveFolder) : await ensureRootFolder();
@@ -29,8 +30,10 @@ export async function buildDriveContext(opts: {
       uploadUrl: opts.uploadUrl,
       runCompletion: async (payload) => {
         const ai = await getAiClient();
-        const res = await ai.runWorkflow('CHAT_COMPLETIONS', payload as Record<string, unknown>, { mode: 'sync' });
-        return res as { choices?: { message?: { content?: string } }[] } | undefined;
+        // 6.x: `ai.apis.run` runs any platform API by name and returns a
+        // WorkflowResponse — the raw CHAT_COMPLETIONS body is under `.result`.
+        const res = await ai.apis.run('CHAT_COMPLETIONS', payload as Record<string, unknown>);
+        return res.result as { choices?: { message?: { content?: string } }[] } | undefined;
       },
       saveFn: (params) =>
         saveFileToDrive({
@@ -46,7 +49,7 @@ export async function buildDriveContext(opts: {
     // Non-fatal: the generation output must still be shown — but the user
     // asked for --save-to-drive, so a silent no-op would look like data loss.
     const msg = err instanceof Error ? err.message : String(err);
-    getOutput().warn(`Drive save unavailable (${msg}) — result will not be saved to Drive`);
+    opts.out.warn(`Drive save unavailable (${msg}) — result will not be saved to Drive`);
     return undefined;
   }
 }

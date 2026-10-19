@@ -68,6 +68,7 @@ export function reconstructGenerateArgs(entry: HistoryEntry, overrides: ReplayOv
   if (entry.startFrame) args.push('--start-frame', entry.startFrame);
   if (entry.endFrame) args.push('--end-frame', entry.endFrame);
   if (entry.staticMask) args.push('--static-mask', entry.staticMask);
+  if (entry.mask) args.push('--mask', entry.mask);
   if (entry.sceneImage) args.push('--scene-image', entry.sceneImage);
   if (entry.styleImage) args.push('--style-image', entry.styleImage);
 

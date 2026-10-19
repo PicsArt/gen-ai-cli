@@ -27,7 +27,7 @@ vi.mock('#param-surface', () => ({
   readResolverSources: readResolverSourcesMock,
 }));
 vi.mock('@picsart/ai-sdk', () => ({
-  Models: { list: () => [] },
+  ALL_MODELS: [],
 }));
 
 import DevParams from './params.ts';

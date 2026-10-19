@@ -58,7 +58,7 @@ export default class List extends BaseCommand {
   async run() {
     const { flags } = await this.parse(List);
 
-    const ai = await getAiClient();
+    const ai = await getAiClient(this.out);
     if (!ai.drive) {
       throw new UsageError('Drive not available');
     }

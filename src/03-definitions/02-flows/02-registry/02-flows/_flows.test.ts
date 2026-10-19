@@ -14,7 +14,7 @@
  *      emptied all eight sub-category flows).
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { FLOWS, type FlowId } from './_flows.ts';
 
@@ -39,7 +39,7 @@ function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
     name: 'Mock',
     inputType: 't2i',
     mode: 'image',
-    disabled: false,
+    deprecated: false,
     paramConfig: {},
     provider: 'picsart' as ModelDefinition['provider'],
     workflow: 'mock',
@@ -140,7 +140,7 @@ describe('FLOWS — modelFilter (InputType-only flows)', () => {
       });
 
       it('rejects disabled models even when InputType matches', () => {
-        expect(flow.modelFilter(mockModel({ inputType: expectedType, disabled: true }))).toBe(false);
+        expect(flow.modelFilter(mockModel({ inputType: expectedType, deprecated: true }))).toBe(false);
       });
 
       it('rejects deprecated models even when InputType matches', () => {
@@ -170,7 +170,7 @@ describe('FLOWS — modelFilter (sub-category flows with workflow/id discriminat
       });
 
       it('rejects disabled models even when both inputType and workflow match', () => {
-        expect(flow.modelFilter(mockModel({ ...fixture, disabled: true }))).toBe(false);
+        expect(flow.modelFilter(mockModel({ ...fixture, deprecated: true }))).toBe(false);
       });
 
       it('rejects deprecated models even when both inputType and workflow match', () => {
@@ -210,7 +210,7 @@ describe('FLOWS — descriptor-driven (paramConfig-shape discriminator)', () => 
     });
 
     it('rejects disabled models even when imageUrls declares array.max > 1', () => {
-      expect(flow.modelFilter({ ...modelWithImageMax(4), disabled: true } as ModelDefinition)).toBe(false);
+      expect(flow.modelFilter({ ...modelWithImageMax(4), deprecated: true } as ModelDefinition)).toBe(false);
     });
 
     it('rejects deprecated models even when imageUrls declares array.max > 1', () => {
@@ -259,7 +259,7 @@ describe('FLOWS — requiredInputs', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('FLOWS — against the real SDK model list', () => {
-  const models = Models.list();
+  const models = ALL_MODELS;
 
   it('every flow matches at least one live model (a zero-match flow is a dead command)', () => {
     const empty: string[] = [];
@@ -273,7 +273,7 @@ describe('FLOWS — against the real SDK model list', () => {
     const offenders: string[] = [];
     for (const [id, spec] of Object.entries(FLOWS)) {
       for (const m of models) {
-        if ((m.disabled === true || m.deprecated === true) && spec.modelFilter(m)) {
+        if (m.deprecated === true && spec.modelFilter(m)) {
           offenders.push(`${id} ← ${m.id}`);
         }
       }

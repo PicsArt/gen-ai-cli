@@ -75,6 +75,7 @@ describe('reconstructGenerateArgs', () => {
         startFrame: 'https://x/s.png',
         endFrame: 'https://x/e.png',
         staticMask: 'https://x/m.png',
+        mask: 'https://x/inpaint-mask.png',
         sceneImage: 'https://x/scene.png',
         styleImage: 'https://x/style.png',
       }),
@@ -82,6 +83,7 @@ describe('reconstructGenerateArgs', () => {
     expect(flagValue(args, '--start-frame')).toBe('https://x/s.png');
     expect(flagValue(args, '--end-frame')).toBe('https://x/e.png');
     expect(flagValue(args, '--static-mask')).toBe('https://x/m.png');
+    expect(flagValue(args, '--mask')).toBe('https://x/inpaint-mask.png');
     expect(flagValue(args, '--scene-image')).toBe('https://x/scene.png');
     expect(flagValue(args, '--style-image')).toBe('https://x/style.png');
   });

@@ -33,7 +33,7 @@ function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
     name: 'Mock',
     inputType: 't2i',
     mode: 'image',
-    disabled: false,
+    deprecated: false,
     paramConfig: {},
     workflow: 'mock/v1/generate',
     ...overrides,
@@ -49,7 +49,7 @@ describe('GENERATE_FLOW — universal modelFilter', () => {
 
   it('rejects disabled models regardless of InputType', () => {
     for (const t of ALL_INPUT_TYPES) {
-      expect(GENERATE_FLOW.modelFilter(mockModel({ inputType: t, disabled: true }))).toBe(false);
+      expect(GENERATE_FLOW.modelFilter(mockModel({ inputType: t, deprecated: true }))).toBe(false);
     }
   });
 

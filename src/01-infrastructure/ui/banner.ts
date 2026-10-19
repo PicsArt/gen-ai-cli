@@ -1,5 +1,5 @@
-import { Models } from '@picsart/ai-sdk';
-import { getColor } from '../ui-core/color.ts';
+import { catalog } from '@picsart/ai-sdk';
+import { type ColorManager, createColorManager } from '../ui-core/color.ts';
 import { BRAND_GOLD } from './theme.ts';
 
 // ASCII art — "PICSART" and "GEN AI" in block letters
@@ -26,12 +26,15 @@ function line(text = ''): void {
   process.stdout.write(`${text}\n`);
 }
 
-export function printBanner(version: string, quiet = false): void {
+export function printBanner(
+  version: string,
+  quiet = false,
+  color: ColorManager = createColorManager({ enabled: 'auto' }),
+): void {
   if (quiet) return;
 
-  const color = getColor();
-  const enabled = Models.list().filter((m) => !m.disabled);
-  const vendorCount = new Set(enabled.map((m) => m.provider)).size;
+  const enabled = catalog.all();
+  const vendorCount = new Set(enabled.map((m) => m.meta().provider.id)).size;
 
   // Check if terminal is wide enough for the ASCII art
   const termWidth = process.stdout.columns || 80;

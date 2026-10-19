@@ -16,6 +16,7 @@
  * the oclif command shell do the rest.
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
+import { isVisibleForReleases } from '@picsart/ai-sdk';
 import type { StaticFlagGroupName } from '../../01-static/01-static-flags/index.ts';
 import type { StaticStepGroupName } from '../../01-static/02-static-steps/index.ts';
 
@@ -120,10 +121,9 @@ export function defineFlow(spec: FlowSpec): FlowSpec {
 
 /**
  * Shared availability gate for every flow's `modelFilter`: excludes
- * models the SDK marks operationally unavailable (`disabled`) or retired
- * (`deprecated` — the catalog row survives only so historical jobs and
- * pricing stay resolvable; new generations must not target it).
+ * follows the SDK's production release visibility and excludes JSON utility
+ * models, which require a different result pipeline from media and text.
  */
 export function modelAvailable(model: ModelDefinition): boolean {
-  return model.disabled !== true && model.deprecated !== true;
+  return model.mode !== 'json' && isVisibleForReleases(model);
 }

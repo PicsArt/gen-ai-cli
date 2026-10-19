@@ -308,11 +308,11 @@ export default class Upload extends BaseCommand {
       );
     }
 
-    const ai = await getAiClient();
+    const ai = await getAiClient(this.out);
     if (!ai.drive) {
       throw new UsageError('Drive not available');
     }
-    const { token, uid } = await getToken();
+    const { token, uid } = await getToken(this.out);
 
     // Resolve folder
     let folder: DriveFolder | undefined;

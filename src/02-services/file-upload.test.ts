@@ -315,6 +315,7 @@ describe('resolveAllFiles', () => {
         video: url,
         audio: url,
         staticMask: url,
+        mask: url,
         sceneImage: url,
         styleImage: url,
       },
@@ -324,8 +325,24 @@ describe('resolveAllFiles', () => {
     expect(resolved.images).toEqual([url, url]);
     expect(resolved.startFrame).toBe(url);
     expect(resolved.styleImage).toBe(url);
+    expect(resolved.mask).toBe(url);
     expect(resolved.videos).toBeUndefined(); // empty slots stay undefined
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveAllFiles — mask upload', () => {
+  it('uploads a local mask and preserves its resolved URL', async () => {
+    const { resolveAllFiles } = await import('./file-upload.ts');
+    const maskPath = path.join(tmpDir, 'mask.png');
+    fs.writeFileSync(maskPath, 'mask-bytes');
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ url: 'https://cdn.example.com/mask.png' }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const resolved = await resolveAllFiles({ mask: maskPath }, { token: 't', uid: 'u' });
+    expect(resolved.mask).toBe('https://cdn.example.com/mask.png');
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
   });
 });
 

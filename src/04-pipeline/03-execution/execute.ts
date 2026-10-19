@@ -47,6 +47,7 @@ export async function execute(
     ...(files.videos && files.videos.length > 0 ? { videoUrls: files.videos } : {}),
     ...(files.audios && files.audios.length > 0 ? { audioUrls: files.audios } : {}),
     ...(files.staticMask ? { staticMask: files.staticMask } : {}),
+    ...(files.mask ? { mask: files.mask } : {}),
     ...(files.sceneImage ? { sceneImage: files.sceneImage } : {}),
     ...(files.styleImage ? { styleImage: files.styleImage } : {}),
     ...(files.styleReferences && files.styleReferences.length > 0 ? { styleReferenceUrls: files.styleReferences } : {}),
@@ -85,10 +86,10 @@ export async function execute(
 
   return executeAsyncModel({
     ai: {
-      submit: (modelId: TypedModelId, ctx: GenerationContext) =>
-        ai.submit(modelId as MediaModelId, ctx as Record<string, unknown> & { prompt: string }),
-      subscribe: (handle, opts) => ai.subscribe(handle, opts),
-      result: (handle, modelId: TypedModelId) => ai.result(handle, modelId as MediaModelId),
+      submit: (modelId: TypedModelId, ctx: GenerationContext, opts) =>
+        ai.submit(modelId as MediaModelId, ctx as Record<string, unknown> & { prompt: string }, opts),
+      subscribe: (modelId: TypedModelId, generationId: string, opts) =>
+        ai.subscribe(modelId as MediaModelId, generationId, opts),
     },
     model,
     params,

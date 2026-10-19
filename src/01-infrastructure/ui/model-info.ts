@@ -1,5 +1,5 @@
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import type { ColorManager } from '../ui-core/color.ts';
 import { renderDivider } from '../ui-core/components/divider.ts';
 import { renderKeyValue } from '../ui-core/components/key-value.ts';
@@ -17,7 +17,7 @@ export function renderModelInfoLines(model: ModelDefinition, color: ColorManager
       ['Provider', model.provider],
       ['Mode', model.mode],
       ['Input Type', model.inputType],
-      ['Status', model.disabled ? 'disabled' : 'enabled'],
+      ['Status', model.deprecated ? 'deprecated' : 'enabled'],
       ['Workflow', model.workflow],
       ['Edit Workflow', model.editWorkflow ?? ''],
       ['Sync Execute', model.syncExecute ? 'yes' : 'no'],
@@ -29,7 +29,7 @@ export function renderModelInfoLines(model: ModelDefinition, color: ColorManager
   );
   lines.push(...kv.split('\n'));
 
-  const schema = Models.toSchema(model.id);
+  const schema = Model(model.id).params().toSchema();
   const schemaKeys = Object.keys(schema);
   if (schemaKeys.length > 0) {
     lines.push('');

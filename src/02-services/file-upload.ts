@@ -171,6 +171,7 @@ export interface ResolvedFiles {
   videos?: string[];
   audios?: string[];
   staticMask?: string;
+  mask?: string;
   sceneImage?: string;
   styleImage?: string;
   styleReferences?: string[];
@@ -185,6 +186,7 @@ export interface InputFiles {
   videos?: string[];
   audios?: string[];
   staticMask?: string;
+  mask?: string;
   sceneImage?: string;
   styleImage?: string;
   styleReferences?: string[];
@@ -214,6 +216,7 @@ export async function resolveAllFiles(files: InputFiles, opts: UploadOptions): P
     video,
     audio,
     staticMask,
+    mask,
     sceneImage,
     styleImage,
     styleReferences,
@@ -226,6 +229,7 @@ export async function resolveAllFiles(files: InputFiles, opts: UploadOptions): P
     resolveOptional(files.video, opts),
     resolveOptional(files.audio, opts),
     resolveOptional(files.staticMask, opts),
+    resolveOptional(files.mask, opts),
     resolveOptional(files.sceneImage, opts),
     resolveOptional(files.styleImage, opts),
     resolveArray(files.styleReferences, opts),
@@ -239,6 +243,7 @@ export async function resolveAllFiles(files: InputFiles, opts: UploadOptions): P
     video,
     audio,
     staticMask,
+    mask,
     sceneImage,
     styleImage,
     styleReferences,

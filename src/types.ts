@@ -28,6 +28,8 @@ export interface ResolvedInputs {
     audios?: string[];
     /** Static-mask image for Kling V3 I2V motion brush. Populated by `--static-mask`. */
     staticMask?: string;
+    /** Edit mask image (-> SDK `mask`). Populated by `--mask`. */
+    mask?: string;
     /** Scene reference image for Kling multi-image-to-image. Populated by `--scene-image`. */
     sceneImage?: string;
     /** Style reference image for Kling multi-image-to-image. Populated by `--style-image`. */

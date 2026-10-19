@@ -25,6 +25,8 @@ vi.mock('./auth.ts', () => ({
   loadCredentials: (...args: unknown[]) => loadCredentials(...args),
   getEnvCredentials: (...args: unknown[]) => getEnvCredentials(...args),
   refreshAccessToken: vi.fn(),
+  // authenticated-fetch.ts falls back to this when no notifier is passed.
+  defaultAuthNotifier: { info: () => undefined, warn: () => undefined },
 }));
 
 import { getAiClient, getAuthenticatedFetch, resetAiClientCache } from './client.ts';
@@ -163,10 +165,13 @@ describe('getAiClient', () => {
 
     const client = await getAiClient();
     // Public API surface of the SDK client (smoke — actual SDK creates these).
+    // The CLI drives generation through generate/submit/subscribe/result and
+    // low-level workflows through apis.run.
     expect(typeof client.generate).toBe('function');
-    // `estimate` exists at runtime but SDK 5.0.0 dropped it from AiClient's
-    // typed surface — assert through a cast until the SDK re-declares it.
-    expect(typeof (client as unknown as { estimate?: unknown }).estimate).toBe('function');
+    expect(typeof client.submit).toBe('function');
+    expect(typeof client.subscribe).toBe('function');
+    expect(typeof client.result).toBe('function');
+    expect(typeof client.apis.run).toBe('function');
   });
 
   it('caches the client — repeated calls return the same instance without re-auth', async () => {

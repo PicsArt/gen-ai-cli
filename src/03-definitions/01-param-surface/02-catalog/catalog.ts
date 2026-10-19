@@ -7,7 +7,7 @@
  *
  * The data flow:
  *
- *   Models.list()              loadCatalog              Catalog
+ *   ALL_MODELS              loadCatalog              Catalog
  *   ─────────────────────  →  ──────────────────  →  ─────────────────
  *   [ modelA, modelB, … ]      merge by key,            bySdkKey / byFlag /
  *   each with paramConfig      union enum options,      all() — pointing to
@@ -18,16 +18,16 @@
  * should validate against, and which models declared it?"
  *
  * Tests pass hand-built fixture models to loadCatalog. Production code
- * calls getCatalog() which lazily walks the real Models.list() and
+ * calls getCatalog() which lazily walks the real ALL_MODELS and
  * caches the result for the rest of the process.
  *
  * See README.md for a walked example.
  */
 import {
+  ALL_MODELS,
   type EnumDescriptor,
   type EnumOption,
   type ModelDefinition,
-  Models,
   type ParamDescriptor,
 } from '@picsart/ai-sdk';
 import { ALIAS_MAP, type AliasMap } from '../01-primitives/01-aliases/index.ts';
@@ -339,6 +339,6 @@ let _cached: Catalog | undefined;
  */
 export function getCatalog(): Catalog {
   if (_cached) return _cached;
-  _cached = loadCatalog(Models.list(), ALIAS_MAP);
+  _cached = loadCatalog(ALL_MODELS, ALIAS_MAP);
   return _cached;
 }

@@ -2,8 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
-import { getOutput } from '#infra/ui-core/output.ts';
-import { ensureDataDir } from '#infra/utils/data-dir.ts';
+import type { OutputManager } from '#infra/ui-core/output.ts';
 import { openInDefault } from '#infra/utils/open.ts';
 import {
   getApiUrl,
@@ -15,27 +14,31 @@ import {
   OAUTH_REDIRECT_PORT,
   OAUTH_SCOPE,
 } from '#services/constants.ts';
+import { type Credentials, fetchUserInfo, saveCredentials } from '#services/credentials.ts';
 
-export interface Credentials {
-  token: string;
-  refreshToken: string;
-  uid: string;
-  email: string;
-  expiresAt: string;
-  refreshExpiresAt?: string;
-}
+// Credential shape + storage/identity primitives live in credentials.ts (shared
+// with the device-grant flow to avoid an import cycle); re-exported so existing
+// importers of auth.ts keep working unchanged.
+export type { Credentials };
 
-/* ── Credential storage (file-based, mode 0o600) ────────────── */
+/**
+ * The slice of the output surface the auth flow needs. Callers that own an
+ * OutputManager satisfy this structurally and pass it straight in, so the auth
+ * service never reaches for a global.
+ */
+export type AuthNotifier = Pick<OutputManager, 'info' | 'warn'>;
 
-function saveCredentials(creds: Credentials): void {
-  ensureDataDir();
-  const credPath = getCredentialsPath();
-  // Atomic tmp + rename (same pattern as user-config/history/device-id): a
-  // crash mid-write must not corrupt credentials and silently log the user out.
-  const tmp = `${credPath}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, credPath);
-}
+/**
+ * Fallback for callers below the UI layer — the execution layer receives no
+ * OutputManager by design (see ExecutionDeps), yet a token can lapse mid-run.
+ * Writes to stderr so stdout's machine-readable contract stays clean. An
+ * interactive login in particular must never be silent: the user needs the
+ * authorization URL when the browser fails to open.
+ */
+export const defaultAuthNotifier: AuthNotifier = {
+  info: (msg: string) => process.stderr.write(`${msg}\n`),
+  warn: (msg: string) => process.stderr.write(`${msg}\n`),
+};
 
 /**
  * Credentials supplied via environment variables (CI / headless mode).
@@ -59,6 +62,44 @@ export function getEnvCredentials(): Credentials | null {
   };
 }
 
+/** Host of an API base URL, or null when it cannot be parsed. */
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether stored credentials belong to the environment this process targets.
+ * Compares hosts only — scheme or trailing-slash drift in the stored value is
+ * incidental and must not invalidate an otherwise good session.
+ */
+function matchesCurrentEnvironment(storedApiUrl: string | undefined): boolean {
+  // Legacy file from a build that predates the stamp — trust it. The path is
+  // already namespaced, and a genuinely foreign token still surfaces as a 401.
+  if (storedApiUrl === undefined) return true;
+  const stored = hostOf(storedApiUrl);
+  return stored !== null && stored === hostOf(getApiUrl());
+}
+
+/**
+ * The foreign environment's host when a credentials file exists but was issued
+ * elsewhere, otherwise null. Used only to explain the situation to the user —
+ * loadCredentials() itself just reports "no usable credentials".
+ */
+function foreignCredentialsHost(): string | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(getCredentialsPath(), 'utf-8'));
+    const stored = typeof raw?.apiUrl === 'string' ? raw.apiUrl : undefined;
+    if (stored === undefined || matchesCurrentEnvironment(stored)) return null;
+    return hostOf(stored) ?? stored;
+  } catch {
+    return null;
+  }
+}
+
 export function loadCredentials(): Credentials | null {
   const credPath = getCredentialsPath();
   try {
@@ -73,6 +114,10 @@ export function loadCredentials(): Credentials | null {
       typeof creds.expiresAt !== 'string'
     )
       return null;
+    if (creds.apiUrl !== undefined && typeof creds.apiUrl !== 'string') return null;
+    // Credentials from another environment are unusable here: the access token
+    // earns a 401 and the refresh token is rejected with invalid_grant.
+    if (!matchesCurrentEnvironment(creds.apiUrl)) return null;
     return creds as Credentials;
   } catch {
     return null;
@@ -232,21 +277,7 @@ async function exchangeCode(code: string, redirectUri: string): Promise<TokenRes
   return data;
 }
 
-async function fetchUserInfo(accessToken: string): Promise<{ uid: string; email: string }> {
-  const res = await fetch(`${getApiUrl()}/gw-v2/users/show/me.json`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`Failed to fetch user info (${res.status})`);
-  const data = (await res.json()) as Record<string, unknown>;
-  const response = (data.response ?? data) as Record<string, unknown>;
-  return {
-    uid: String(response.id ?? ''),
-    email: String(response.email ?? response.username ?? ''),
-  };
-}
-
-export async function login(): Promise<Credentials> {
+export async function login(notify: AuthNotifier): Promise<Credentials> {
   const state = crypto.randomBytes(16).toString('hex');
   const { server, port } = await findAvailableServer();
   const redirectUri = `http://localhost:${port}`;
@@ -337,6 +368,7 @@ export async function login(): Promise<Credentials> {
           refreshExpiresAt: refresh_token_expires_in
             ? new Date(Date.now() + refresh_token_expires_in * 1000).toISOString()
             : undefined,
+          apiUrl: getApiUrl(),
         };
         saveCredentials(creds);
 
@@ -354,8 +386,8 @@ export async function login(): Promise<Credentials> {
       }
     });
 
-    getOutput().info('Opening browser for authorization...');
-    getOutput().info(`If browser doesn't open, visit: ${authUrl}`);
+    notify.info('Opening browser for authorization...');
+    notify.info(`If browser doesn't open, visit: ${authUrl}`);
     openInDefault(authUrl);
   });
 }
@@ -377,6 +409,15 @@ async function doRefresh(): Promise<Credentials> {
   if (!creds?.refreshToken) {
     throw new Error('No refresh token. Run "gen-ai login" to authenticate.');
   }
+  // Device-issued tokens refresh at pa-authorization-server, not the mini-apps
+  // URL. Lazy import avoids a load-time cycle (device-auth imports credentials,
+  // not auth). Checked before the expiry gate — the device server owns expiry.
+  if (creds.authSource === 'device') {
+    const { refreshDeviceToken } = await import('#services/device-auth.ts');
+    const updated = await refreshDeviceToken(creds);
+    saveCredentials(updated);
+    return updated;
+  }
   if (creds.refreshExpiresAt && new Date(creds.refreshExpiresAt) <= new Date()) {
     throw new Error('Refresh token expired. Run "gen-ai login" to re-authenticate.');
   }
@@ -392,10 +433,12 @@ async function doRefresh(): Promise<Credentials> {
   // `data.response` guarded too: a 200 missing the payload must surface the
   // descriptive error below, not a bare TypeError from the destructuring.
   if (!res.ok || !data || data.status !== 'success' || !data.response) {
+    const reason = data?.message ?? data?.reason ?? `HTTP ${res.status}`;
+    const host = hostOf(getTokenRefreshUrl()) ?? getTokenRefreshUrl();
     if (res.status === 401 || res.status === 403) {
-      throw new Error('Refresh token revoked. Run "gen-ai login" to re-authenticate.');
+      throw new Error(`Refresh token revoked by ${host} (${reason}).`);
     }
-    throw new Error(`Token refresh failed: ${data?.message ?? data?.reason ?? `HTTP ${res.status}`}`);
+    throw new Error(`Token refresh failed at ${host}: ${reason}`);
   }
 
   const { access_token, refresh_token, expires_in, refresh_token_expires_in } = data.response;
@@ -407,6 +450,7 @@ async function doRefresh(): Promise<Credentials> {
     refreshExpiresAt: refresh_token_expires_in
       ? new Date(Date.now() + refresh_token_expires_in * 1000).toISOString()
       : creds.refreshExpiresAt,
+    apiUrl: getApiUrl(),
   };
   saveCredentials(updated);
   return updated;
@@ -421,13 +465,16 @@ async function doRefresh(): Promise<Credentials> {
  * 3. Auto-refresh (if refresh token valid)
  * 4. Auto-login (opens browser, interactive only)
  */
-export async function getToken(): Promise<{ token: string; uid: string }> {
+export async function getToken(notify: AuthNotifier = defaultAuthNotifier): Promise<{ token: string; uid: string }> {
   // 1. CI / env override
   const envCreds = getEnvCredentials();
   if (envCreds) return { token: envCreds.token, uid: envCreds.uid };
 
   // 2. Cached credentials
   const creds = loadCredentials();
+  // Kept so the failure can be reported instead of silently becoming
+  // "Not authenticated" three steps later.
+  let refreshFailure: string | null = null;
 
   if (creds) {
     // 3. Access token still valid (60s buffer)
@@ -446,20 +493,32 @@ export async function getToken(): Promise<{ token: string; uid: string }> {
       if (isNetworkError(err)) {
         throw new NetworkError(`could not refresh the access token (${(err as Error).message})`);
       }
-      // Genuine rejection from the auth server — fall through to auto-login.
+      // Genuine rejection from the auth server — fall through to auto-login,
+      // but keep the reason: it is the only explanation the user ever gets.
+      refreshFailure = (err as Error).message;
     }
   }
+
+  // Credentials exist but belong to another environment — say so, rather than
+  // letting it read as "you were never logged in".
+  const foreignHost = foreignCredentialsHost();
+  const mismatchHint = foreignHost
+    ? `Stored credentials were issued for ${foreignHost}, but this command targets ${hostOf(getApiUrl()) ?? getApiUrl()}.`
+    : null;
 
   // 5. No credentials or refresh failed — auto-login if interactive
   if (!process.stdin.isTTY) {
     const { AuthError } = await import('#infra/errors/auth.ts');
+    const detail = mismatchHint ?? refreshFailure;
     throw new AuthError(
-      'Not authenticated. Set PICSART_ACCESS_TOKEN and PICSART_USER_ID env vars, or run "gen-ai login" interactively.',
+      `Not authenticated.${detail ? ` ${detail}` : ''} Set PICSART_ACCESS_TOKEN and PICSART_USER_ID env vars, or run "gen-ai login" interactively.`,
     );
   }
 
-  getOutput().info('Not logged in — starting authentication...');
-  const fresh = await login();
+  if (mismatchHint) notify.warn(mismatchHint);
+  else if (refreshFailure) notify.warn(refreshFailure);
+  notify.info('Not logged in — starting authentication...');
+  const fresh = await login(notify);
   return { token: fresh.token, uid: fresh.uid };
 }
 

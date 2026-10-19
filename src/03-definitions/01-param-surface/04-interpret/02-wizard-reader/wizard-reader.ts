@@ -40,7 +40,13 @@
  */
 import type { GenerationContext, ObjectDescriptor, ParamDescriptor } from '@picsart/ai-sdk';
 import { UsageError } from '#infra/errors/usage.ts';
-import { autoNumberIndexField, coerceToDescriptor } from '../../01-primitives/02-coercion/index.ts';
+import {
+  autoNumberIndexField,
+  coerceJsonObject,
+  coerceToDescriptor,
+  parseJsonInput,
+  usesJsonObject,
+} from '../../01-primitives/02-coercion/index.ts';
 import type { Catalog, ParamSurface } from '../../02-catalog/index.ts';
 
 export function collectContextFromAnswers(
@@ -63,7 +69,7 @@ function readOne(answers: Record<string, unknown>, surface: ParamSurface): unkno
   if (raw === undefined) return undefined;
 
   if (kind === 'object') return readObjectArray(raw, surface);
-  return coerceToDescriptor(raw, surface.descriptor);
+  return coerceToDescriptor(kind === 'unknown' ? parseJsonInput(raw) : raw, surface.descriptor);
 }
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -72,6 +78,7 @@ function readOne(answers: Record<string, unknown>, surface: ParamSurface): unkno
 
 function readObjectArray(raw: unknown, surface: ParamSurface): unknown {
   const desc = surface.descriptor as ObjectDescriptor;
+  if (usesJsonObject(desc)) return coerceJsonObject(parseJsonInput(raw), desc);
 
   // Non-array object (SDK convention: `array` undefined = ONE bare object,
   // e.g. loraWeights). Accept a single record and pass it through as `{...}`.
@@ -100,8 +107,8 @@ function readObjectArray(raw: unknown, surface: ParamSurface): unknown {
   // scripted paths producing identical payloads. Numbering starts at the
   // descriptor's declared minimum (Kling multiPrompt: 0..5 for 6 shots);
   // explicit answers, even zeros, are the caller's intent and stay verbatim.
-  if ('index' in desc.fields && !explicitIndex) {
-    const idxDesc = desc.fields.index;
+  if ('index' in (desc.fields ?? {}) && !explicitIndex) {
+    const idxDesc = desc.fields!.index;
     const start = idxDesc.kind === 'range' ? idxDesc.min : 1;
     return autoNumberIndexField(items, start);
   }
@@ -114,7 +121,7 @@ function readItem(item: unknown, desc: ObjectDescriptor, parentKey: string, inde
   }
   const src = item as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  for (const [subKey, subDesc] of Object.entries(desc.fields)) {
+  for (const [subKey, subDesc] of Object.entries(desc.fields ?? {})) {
     out[subKey] = resolveSubfield(src[subKey], subDesc, parentKey, subKey, index);
   }
   return out;
@@ -127,10 +134,15 @@ function resolveSubfield(
   subKey: string,
   index: number,
 ): unknown {
-  if (provided !== undefined) return coerceToDescriptor(provided, desc);
+  if (provided !== undefined) {
+    if (desc.kind === 'object') return coerceJsonObject(parseJsonInput(provided), desc);
+    return coerceToDescriptor(desc.kind === 'unknown' ? parseJsonInput(provided) : provided, desc);
+  }
 
   const def = descriptorDefault(desc);
   if (def !== undefined) return def;
+
+  if ('required' in desc && desc.required === false) return undefined;
 
   throw new UsageError(`${parentKey}[${index}].${subKey}: missing required value (subfield has no default)`);
 }

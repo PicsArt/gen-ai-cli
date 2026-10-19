@@ -28,13 +28,13 @@ describe('parseCompareModels', () => {
 
 describe('resolveCompareModels', () => {
   it('resolves real model ids to definitions', () => {
-    const realId = ALL_MODELS.find((m) => !m.disabled)!.id;
+    const realId = ALL_MODELS.find((m) => !m.deprecated)!.id;
     const resolved = resolveCompareModels([realId]);
     expect(resolved[0].id).toBe(realId);
   });
 
   it('throws a UsageError on the first unknown id', () => {
-    const realId = ALL_MODELS.find((m) => !m.disabled)!.id;
+    const realId = ALL_MODELS.find((m) => !m.deprecated)!.id;
     expect(() => resolveCompareModels([realId, 'totally-fake-zzz'])).toThrow(UsageError);
   });
 });

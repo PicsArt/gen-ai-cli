@@ -1,5 +1,6 @@
 import { Args } from '@oclif/core';
-import { findModel, Models } from '@picsart/ai-sdk';
+import { ALL_MODELS, findModel, Model } from '@picsart/ai-sdk';
+import { modelAvailable } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import { renderModelInfoLines } from '#infra/ui/model-info.ts';
 import { renderCard } from '#infra/ui-core/components/card.ts';
@@ -25,7 +26,7 @@ export default class ModelsInfo extends BaseCommand {
     const { args } = await this.parse(ModelsInfo);
 
     if (!args.model) {
-      const models = Models.list().filter((m) => !m.disabled);
+      const models = ALL_MODELS.filter(modelAvailable);
       const sample = models.slice(0, 5).map((m) => m.id);
 
       if (this.isJsonMode) {
@@ -68,7 +69,7 @@ export default class ModelsInfo extends BaseCommand {
         provider: model.provider,
         mode: model.mode,
         inputType: model.inputType,
-        disabled: model.disabled ?? false,
+        disabled: model.deprecated ?? false,
         workflow: model.workflow,
         editWorkflow: model.editWorkflow,
         syncExecute: model.syncExecute ?? false,
@@ -76,7 +77,7 @@ export default class ModelsInfo extends BaseCommand {
         features: model.features,
         badge: model.badge,
         paramConfig: model.paramConfig,
-        schema: Models.toSchema(model.id),
+        schema: Model(model.id).params().toSchema(),
       });
       return;
     }

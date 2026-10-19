@@ -6,8 +6,8 @@
  */
 
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { findModel, Models } from '@picsart/ai-sdk';
-import type { FlowSpec } from '#flows';
+import { ALL_MODELS, findModel, Model } from '@picsart/ai-sdk';
+import { type FlowSpec, modelAvailable } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import type { FieldError } from '#infra/errors/validation.ts';
 import { collectGenerationContext, getCatalog } from '#param-surface';
@@ -56,7 +56,7 @@ export function resolveModelFromFlag(modelFlag: string | undefined, flow: FlowSp
 
 /** Get all models that match a flow's filter (and aren't disabled). */
 export function getModelsForOperation(flow: FlowSpec): ModelDefinition[] {
-  return Models.list().filter((m) => !m.disabled && flow.modelFilter(m));
+  return ALL_MODELS.filter((m) => modelAvailable(m) && flow.modelFilter(m));
 }
 
 /**
@@ -102,7 +102,7 @@ export function validateRequiredInputs(flow: FlowSpec, inputs: Partial<ResolvedI
 
 /**
  * Enforce each model's declared per-slot file caps. The SDK file descriptor
- * exposes an array `max` (via `Models.getFileParam`); exceeding it would
+ * exposes an array `max` (via `Model(id).params().file(...)`); exceeding it would
  * otherwise surface as a cryptic backend 400. Throws a clear `UsageError`
  * naming the slot, the cap, and what the user passed.
  *
@@ -119,11 +119,12 @@ export function validateFileSlotLimits(model: ModelDefinition, files: ResolvedIn
   for (const { slot, ctxKey, noun, flag } of arraySlots) {
     const values = files[slot];
     if (!values || values.length === 0) continue;
-    const param = Models.getFileParam(model.id, ctxKey);
-    if (param && param.max > 0 && values.length > param.max) {
-      const plural = param.max === 1 ? '' : 's';
+    const param = Model(model.id).params().file(ctxKey);
+    const max = param?.array?.max ?? 0;
+    if (max > 0 && values.length > max) {
+      const plural = max === 1 ? '' : 's';
       throw new UsageError(
-        `${model.name} accepts at most ${param.max} ${noun}${plural} for ${flag}; you provided ${values.length}.`,
+        `${model.name} accepts at most ${max} ${noun}${plural} for ${flag}; you provided ${values.length}.`,
       );
     }
   }

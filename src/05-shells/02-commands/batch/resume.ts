@@ -93,10 +93,14 @@ export default class BatchResume extends BaseCommand {
 
     this.out.info(`Resuming ${manifest.jobs.length} failed job(s)...`);
 
-    const results = await runBatchWithAuth(manifest, {
-      concurrency: flags.concurrency,
-      output: outputDir,
-    });
+    const results = await runBatchWithAuth(
+      manifest,
+      {
+        concurrency: flags.concurrency,
+        output: outputDir,
+      },
+      this.out,
+    );
 
     results.manifestPath = prev.manifestPath;
 
@@ -107,9 +111,14 @@ export default class BatchResume extends BaseCommand {
 
     printSummary(results, 'Resume complete');
 
-    await saveAndDownload(results, outputDir, {
-      noDownload: flags['no-download'],
-      downloadConcurrency: flags['download-concurrency'],
-    });
+    await saveAndDownload(
+      results,
+      outputDir,
+      {
+        noDownload: flags['no-download'],
+        downloadConcurrency: flags['download-concurrency'],
+      },
+      this.out,
+    );
   }
 }

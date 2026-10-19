@@ -12,7 +12,7 @@ function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
     name: 'Mock',
     inputType: 't2v',
     mode: 'video',
-    disabled: false,
+    deprecated: false,
     paramConfig: {},
     provider: 'picsart' as ModelDefinition['provider'],
     workflow: 'mock',
@@ -70,10 +70,10 @@ describe('VIDEO_FLOW — modelFilter', () => {
   });
 
   it('rejects disabled t2v models', () => {
-    expect(VIDEO_FLOW.modelFilter(mockModel({ inputType: 't2v', disabled: true }))).toBe(false);
+    expect(VIDEO_FLOW.modelFilter(mockModel({ inputType: 't2v', deprecated: true }))).toBe(false);
   });
 
   it('accepts t2v models when `disabled` is undefined (treats as enabled)', () => {
-    expect(VIDEO_FLOW.modelFilter(mockModel({ inputType: 't2v', disabled: undefined }))).toBe(true);
+    expect(VIDEO_FLOW.modelFilter(mockModel({ inputType: 't2v', deprecated: undefined }))).toBe(true);
   });
 });

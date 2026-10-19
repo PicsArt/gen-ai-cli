@@ -10,7 +10,7 @@
  *   3. Snapshot — locks the rendered surface against SDK changes. A future
  *      SDK addition appears as a snapshot diff in CI.
  */
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import {
   MODEL_BOOLEAN,
@@ -352,7 +352,7 @@ describe('loadCatalog — object descriptor', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('against the real SDK catalog', () => {
-  const realCatalog = loadCatalog(Models.list(), ALIAS_MAP);
+  const realCatalog = loadCatalog(ALL_MODELS, ALIAS_MAP);
 
   // The exemption list lives next to ALIAS_MAP (single source of truth,
   // also consumed by `gen-ai dev:params`). See EXPECTED_SDK_GAPS in

@@ -100,6 +100,7 @@ export async function handleOutput(
     startFrame: params.startFrame as string | undefined,
     endFrame: params.endFrame as string | undefined,
     staticMask: params.staticMask as string | undefined,
+    mask: params.mask as string | undefined,
     sceneImage: params.sceneImage as string | undefined,
     styleImage: params.styleImage as string | undefined,
     resultUrl: resultUrls[0],

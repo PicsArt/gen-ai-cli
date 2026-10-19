@@ -4,9 +4,9 @@
  */
 
 import type { GenerationMode, ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { getModelsByMode, Model } from '@picsart/ai-sdk';
 import chalk from 'chalk';
-import { getColor } from '#infra/ui-core/color.ts';
+import { type ColorManager, createColorManager } from '#infra/ui-core/color.ts';
 import { renderPresetBadge } from '#infra/ui-core/components/badge.ts';
 import { badgePriority } from '#infra/utils/badge-priority.ts';
 import { fuzzyFilter } from '#infra/utils/fuzzy.ts';
@@ -52,9 +52,9 @@ function friendlyInputType(model: ModelDefinition): string {
   if (model.inputType === 'music') inputs.push('text');
 
   // Check for optional extra inputs via paramConfig
-  const imgParam = Models.getFileParam(model.id, 'imageUrls');
-  const vidParam = Models.getFileParam(model.id, 'videoUrl');
-  const audParam = Models.getFileParam(model.id, 'audioUrl');
+  const imgParam = Model(model.id).params().file('imageUrls');
+  const vidParam = Model(model.id).params().file('videoUrl');
+  const audParam = Model(model.id).params().file('audioUrl');
 
   if (imgParam && !primaryIsImage) inputs.push('image');
   if (vidParam && !primaryIsVideo) inputs.push('video');
@@ -64,7 +64,9 @@ function friendlyInputType(model: ModelDefinition): string {
   return `${inputs.join('/')} → ${output}`;
 }
 
-export async function promptForModel(): Promise<ModelSelection | null> {
+export async function promptForModel(
+  color: ColorManager = createColorManager({ enabled: 'auto' }),
+): Promise<ModelSelection | null> {
   let resolvedMode: GenerationMode = 'image';
   let resolvedModels: ModelDefinition[] = [];
 
@@ -98,7 +100,7 @@ export async function promptForModel(): Promise<ModelSelection | null> {
     {
       id: 'model',
       run: async () => {
-        const models = Models.list({ mode: resolvedMode }).filter((m) => !m.disabled);
+        const models = getModelsByMode(resolvedMode).filter((m) => !m.deprecated);
         models.sort((a, b) => badgePriority(a) - badgePriority(b));
         resolvedModels = models;
 
@@ -112,9 +114,7 @@ export async function promptForModel(): Promise<ModelSelection | null> {
               : resolvedModels;
 
             return matched.map((m) => {
-              const badges = m.badge?.length
-                ? m.badge.map((b) => renderPresetBadge(b, { color: getColor() })).join(' ')
-                : '';
+              const badges = m.badge?.length ? m.badge.map((b) => renderPresetBadge(b, { color })).join(' ') : '';
               const line2 = chalk.dim(`  ${friendlyInputType(m)} · ${m.provider}`);
               return {
                 name: `${chalk.bold(m.name)}${badges ? `  ${badges}` : ''}\n${line2}`,

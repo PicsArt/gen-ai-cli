@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { DriveMediaItem, GenerationContext, ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import { filterCatalog } from '#flows';
 import type { OutputManager } from '#infra/ui-core/output.ts';
 import { AUDIO_EXTS, VIDEO_EXTS } from '#infra/utils/media-types.ts';
@@ -269,14 +269,16 @@ async function runObjectStep(
     return single === null ? BACK : single;
   }
 
-  const max = s.arrayMax ?? 1;
-  const hint = s.required ? `(1–${max})` : `(1–${max}, blank to skip)`;
+  const min = Math.max(1, s.arrayMin ?? 1);
+  const max = s.arrayMax;
+  const range = max === undefined ? `${min} or more` : `${min}–${max}`;
+  const hint = s.required ? `(${range})` : `(${range}, blank to skip)`;
   const countAnswer = (await askWithNav(`How many ${s.label}? ${hint}`)).trim();
 
   if (countAnswer === '' || countAnswer === '0') return s.required ? undefined : [];
   const parsed = Number(countAnswer);
-  if (Number.isNaN(parsed)) return s.required ? undefined : [];
-  const count = Math.max(1, Math.min(max, parsed));
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return s.required ? undefined : [];
+  const count = Math.max(min, Math.min(max ?? Number.POSITIVE_INFINITY, parsed));
 
   const items: Record<string, unknown>[] = [];
   for (let i = 0; i < count; i++) {
@@ -316,11 +318,11 @@ export async function prefetchDriveMedia(out: OutputManager, model: ModelDefinit
   const prefetch: DrivePrefetch = {};
   // `styleReferenceUrls` (recraft v4 style models) is an image-array slot, so
   // it wants Drive images too even when the model declares no `imageUrls`.
-  const imgParam = Models.getFileParam(model.id, 'imageUrls') ?? Models.getFileParam(model.id, 'styleReferenceUrls');
+  const imgParam = Model(model.id).params().file('imageUrls') ?? Model(model.id).params().file('styleReferenceUrls');
   // Array slots (videoUrls / audioUrls) want Drive media too — seedance
   // extend and seed-audio models declare only those.
-  const vidParam = Models.getFileParam(model.id, 'videoUrl') ?? Models.getFileParam(model.id, 'videoUrls');
-  const audParam = Models.getFileParam(model.id, 'audioUrl') ?? Models.getFileParam(model.id, 'audioUrls');
+  const vidParam = Model(model.id).params().file('videoUrl') ?? Model(model.id).params().file('videoUrls');
+  const audParam = Model(model.id).params().file('audioUrl') ?? Model(model.id).params().file('audioUrls');
 
   try {
     const [images, videos, audios] = await Promise.all([
@@ -344,7 +346,9 @@ async function promptSingleMediaInput(
   ctx: Readonly<Partial<GenerationContext>>,
   drive?: DrivePrefetch,
 ): Promise<Partial<GenerationContext>> {
-  const inputConfig = Models.getFileParam(model.id, type === 'video' ? 'videoUrl' : 'audioUrl');
+  const inputConfig = Model(model.id)
+    .params()
+    .file(type === 'video' ? 'videoUrl' : 'audioUrl');
   if (!inputConfig) return {};
 
   const existing = type === 'video' ? ctx.videoUrl : ctx.audioUrl;
@@ -381,7 +385,7 @@ async function promptMediaUrlsInputs(
   drive?: DrivePrefetch,
 ): Promise<Partial<GenerationContext>> {
   const key = type === 'video' ? 'videoUrls' : 'audioUrls';
-  const param = Models.getFileParam(model.id, key);
+  const param = Model(model.id).params().file(key);
   if (!param) return {};
 
   const existing = type === 'video' ? ctx.videoUrls : ctx.audioUrls;
@@ -390,7 +394,7 @@ async function promptMediaUrlsInputs(
   const exts = type === 'video' ? VIDEO_EXTS : AUDIO_EXTS;
   const driveItems = type === 'video' ? drive?.videos : drive?.audios;
   const baseLabel = param.label || (type === 'video' ? 'Video' : 'Audio');
-  const max = Math.max(1, param.max || 1);
+  const max = Math.max(1, param.array?.max || 1);
 
   const values: string[] = [];
   for (let i = 0; i < max; i++) {
@@ -418,20 +422,20 @@ export async function promptForInputFiles(
   drive?: DrivePrefetch,
   hints?: { promptProvided?: boolean },
 ): Promise<Partial<GenerationContext>> {
-  const imgP = Models.getFileParam(model.id, 'imageUrls');
-  const sfP = Models.getFileParam(model.id, 'startFrame');
-  const efP = Models.getFileParam(model.id, 'endFrame');
-  const vidP = Models.getFileParam(model.id, 'videoUrl');
-  const audP = Models.getFileParam(model.id, 'audioUrl');
+  const imgP = Model(model.id).params().file('imageUrls');
+  const sfP = Model(model.id).params().file('startFrame');
+  const efP = Model(model.id).params().file('endFrame');
+  const vidP = Model(model.id).params().file('videoUrl');
+  const audP = Model(model.id).params().file('audioUrl');
   // Array slots — some models (seedance video-extend, seed-audio) declare
   // their media input ONLY through these.
-  const vidsP = Models.getFileParam(model.id, 'videoUrls');
-  const audsP = Models.getFileParam(model.id, 'audioUrls');
+  const vidsP = Model(model.id).params().file('videoUrls');
+  const audsP = Model(model.id).params().file('audioUrls');
   // Image-array slot — recraft v4 style models (recraftv4_styles*) declare
   // their ONLY (required) file input this way. Without it the wizard would
   // early-return and never collect the style references, and the model then
   // rejects at submit with `"styleReferenceUrls" is required`.
-  const styleRefsP = Models.getFileParam(model.id, 'styleReferenceUrls');
+  const styleRefsP = Model(model.id).params().file('styleReferenceUrls');
   const ctxStyleRefs = (ctx as { styleReferenceUrls?: string[] }).styleReferenceUrls;
   // Treat startFrame as an image input for prompting purposes
   const effectiveImgP = imgP ?? sfP;
@@ -497,7 +501,7 @@ export async function promptForInputFiles(
     const values = await promptImageInputs(
       label,
       !!effectiveImgP.required,
-      usesStartFrame ? 1 : effectiveImgP.max,
+      usesStartFrame ? 1 : (effectiveImgP.array?.max ?? 1),
       drive,
     );
     if (values.length > 0) {
@@ -534,7 +538,7 @@ export async function promptForInputFiles(
     const values = await promptImageInputs(
       styleRefsP.label || 'Style References',
       !!styleRefsP.required,
-      styleRefsP.max,
+      styleRefsP.array?.max ?? 1,
       drive,
     );
     if (values.length > 0) updates.styleReferenceUrls = values;

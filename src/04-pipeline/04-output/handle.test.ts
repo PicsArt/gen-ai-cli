@@ -242,6 +242,7 @@ describe('handleOutput — history', () => {
           startFrame: 'https://x/s.png',
           endFrame: 'https://x/e.png',
           staticMask: 'https://x/m.png',
+          mask: 'https://x/inpaint-mask.png',
           sceneImage: 'https://x/scene.png',
           styleImage: 'https://x/style.png',
         },
@@ -255,6 +256,7 @@ describe('handleOutput — history', () => {
     expect(entry.startFrame).toBe('https://x/s.png');
     expect(entry.endFrame).toBe('https://x/e.png');
     expect(entry.staticMask).toBe('https://x/m.png');
+    expect(entry.mask).toBe('https://x/inpaint-mask.png');
     expect(entry.sceneImage).toBe('https://x/scene.png');
     expect(entry.styleImage).toBe('https://x/style.png');
   });

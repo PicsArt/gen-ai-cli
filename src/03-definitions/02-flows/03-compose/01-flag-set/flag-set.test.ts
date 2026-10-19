@@ -7,7 +7,7 @@
  *   - merges in a stable order (static wins on collision)
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ModelLike } from '#param-surface';
 import { ALIAS_MAP, loadCatalog } from '#param-surface';
@@ -25,7 +25,7 @@ function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
     name: 'Mock',
     inputType: 't2v',
     mode: 'video',
-    disabled: false,
+    deprecated: false,
     paramConfig: {},
     provider: 'picsart' as ModelDefinition['provider'],
     workflow: 'mock',
@@ -63,7 +63,7 @@ const T2I_MODEL: ModelDefinition = mockModel({
 const VIDEO_FLOW = defineFlow({
   id: 'video',
   description: 'Test t2v flow',
-  modelFilter: (m) => m.inputType === 't2v' && m.disabled !== true,
+  modelFilter: (m) => m.inputType === 't2v' && m.deprecated !== true,
   staticFlagGroups: ['universal', 'output', 'model'],
   staticStepGroups: [],
   requiredInputs: ['prompt'],
@@ -120,7 +120,7 @@ describe('composeFlagsForFlow — filtering', () => {
   });
 
   it('excludes disabled matching models', () => {
-    const disabled = mockModel({ id: 'disabled', inputType: 't2v', disabled: true });
+    const disabled = mockModel({ id: 'disabled', inputType: 't2v', deprecated: true });
     const cat = loadCatalog(modelsAsCatalogInput([disabled]), ALIAS_MAP);
     const flags = composeFlagsForFlow(VIDEO_FLOW, cat, [disabled]);
     expect(flags.prompt).toBeUndefined();
@@ -236,7 +236,7 @@ describe('composeFlagsForFlow — SDK-gap flags (Kling)', () => {
   });
 
   it('real SDK: the video flow ships --external-task-id (regression: flag was documented but never composed)', () => {
-    const models = Models.list();
+    const models = ALL_MODELS;
     const catalog = loadCatalog(models, ALIAS_MAP);
     const flags = composeFlagsForFlow(FLOWS.video, catalog, models);
     expect(flags['external-task-id']).toBeDefined();
@@ -248,7 +248,7 @@ describe('composeFlagsForFlow — SDK-gap flags (Kling)', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('composeFlagsForFlow — against the real SDK, for every registered flow', () => {
-  const models = Models.list();
+  const models = ALL_MODELS;
   const catalog = loadCatalog(models, ALIAS_MAP);
 
   type ComposedFlag = { char?: string; aliases?: readonly string[] };

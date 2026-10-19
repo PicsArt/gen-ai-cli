@@ -25,7 +25,7 @@
  * flow?" — not this one.
  */
 import type { GenerationContext, ParamDescriptor } from '@picsart/ai-sdk';
-import { coerceToDescriptor } from '../../01-primitives/02-coercion/index.ts';
+import { coerceToDescriptor, parseJsonInput } from '../../01-primitives/02-coercion/index.ts';
 import type { Catalog, ParamSurface } from '../../02-catalog/index.ts';
 import { interpretObjectArray } from './objects.ts';
 
@@ -62,8 +62,8 @@ function collectOne(flags: Record<string, unknown>, surface: ParamSurface, model
   if (kind === 'file') return undefined;
 
   // Object descriptors fan out across per-subfield flag names. See ./objects.ts.
-  if (kind === 'object') return interpretObjectArray(flags, surface);
+  if (kind === 'object') return interpretObjectArray(flags, { ...surface, descriptor });
 
   // Scalar kinds: read the canonical flag name, coerce via primitives.
-  return coerceToDescriptor(flags[surface.flag], descriptor);
+  return coerceToDescriptor(kind === 'unknown' ? parseJsonInput(flags[surface.flag]) : flags[surface.flag], descriptor);
 }

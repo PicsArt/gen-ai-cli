@@ -98,6 +98,11 @@ gen-ai credits    # remaining credits on your account
 Credentials are stored at `~/.gen-ai/credentials.json` (mode 600). The CLI
 auto-refreshes the access token on 401 — `gen-ai login` again if refresh fails.
 
+Each environment keeps its own credentials file: production uses
+`credentials.json`, and any other `GEN_AI_API_URL` gets one named after its API
+host. A stage and a production session can therefore be logged in at the same
+time without evicting each other.
+
 ---
 
 ## Commands
@@ -303,7 +308,8 @@ Everything the CLI persists lives under `~/.gen-ai/`:
 
 | File | Purpose |
 |---|---|
-| `credentials.json` | OAuth tokens (mode 600) |
+| `credentials.json` | OAuth tokens for production (mode 600) |
+| `credentials.<api-host>.json` | OAuth tokens for a non-production `GEN_AI_API_URL` (mode 600) |
 | `config.json` | User preferences set via `config set` |
 | `history.json` | Generation history (capped at 500 entries) |
 | `recent-files.json` | Recently used input files |
@@ -385,8 +391,20 @@ output) with strict import boundaries enforced by `dependency-cruiser`. See
 [ARCHITECTURE.md](./ARCHITECTURE.md) for the full layout.
 
 Models live in `@picsart/ai-sdk`, published from the external `pa-gen-ai-sdk`
-repo, not in the CLI itself — adding a model there and bumping the pin here
-makes it appear in `gen-ai` automatically.
+repo. The CLI bundles that SDK at build time; pricing refreshes at runtime,
+but model definitions do not. A newer catalog requires updating the exact SDK
+pin and lockfile, validating parameter and generation compatibility, then
+building and releasing a new CLI. Default model discovery follows the SDK's
+production release visibility and includes image, video, audio, and text.
+
+Run `npm run check:sdk-catalog` to check the pin against the lockfile offline,
+or `npm run check:sdk-catalog -- --check-latest` to compare it with public npm.
+The latter fails when the catalog dependency needs review; it does not install
+or publish anything. A GitLab schedule targeting `main` with
+`CHECK_SDK_CATALOG=true` runs this freshness check without release/deploy jobs.
+The schedule must be configured separately. After an SDK upgrade, run
+`npm run audit:params`, `npm run typecheck`, `npm run test:vitest`, and
+`npm run build` before release.
 
 ---
 

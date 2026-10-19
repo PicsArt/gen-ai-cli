@@ -133,7 +133,7 @@ export default class Download extends BaseCommand {
   async run() {
     const { flags } = await this.parse(Download);
 
-    const ai = await getAiClient();
+    const ai = await getAiClient(this.out);
     if (!ai.drive) {
       throw new UsageError('Drive not available');
     }

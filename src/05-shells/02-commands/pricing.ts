@@ -50,7 +50,7 @@ export default class Pricing extends BaseCommand {
     const implicitAll = !args.model && !flags.all;
     if (!args.model) flags.all = true;
 
-    await ensurePricingClient();
+    await ensurePricingClient(this.out);
     await catalog.pricing.load();
 
     if (flags.all) {

@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core';
 import type { GenerationMode, ModelDefinition } from '@picsart/ai-sdk';
-import { catalog, Model, Models } from '@picsart/ai-sdk';
+import { ALL_MODELS, catalog, DEFAULT_VISIBLE_RELEASES, Model, releaseOf } from '@picsart/ai-sdk';
 import chalk from 'chalk';
 import { selectWithNav } from '#pipeline/01-wizard-runner/nav.ts';
 import { BACK, CANCEL } from '#pipeline/01-wizard-runner/wizard-state.ts';
@@ -20,7 +20,7 @@ function formatCredits(model: ModelDefinition): string {
 }
 
 function summarizeParams(model: ModelDefinition): string {
-  const schema = Models.toSchema(model.id);
+  const schema = Model(model.id).params().toSchema();
   const keys = Object.keys(schema);
   if (keys.length === 0) return '-';
   return keys
@@ -48,7 +48,7 @@ export default class ModelsList extends BaseCommand {
 
   static flags = {
     ...BaseCommand.baseFlags,
-    mode: Flags.string({ description: 'Filter by generation mode (video|image|audio)' }),
+    mode: Flags.string({ description: 'Filter by generation mode (video|image|audio|text)' }),
     provider: Flags.string({ description: 'Filter by provider name' }),
     'input-type': Flags.string({ description: 'Filter by input type (t2v|i2v|t2i|...)' }),
     disabled: Flags.boolean({ description: 'Include disabled models', default: false }),
@@ -60,12 +60,13 @@ export default class ModelsList extends BaseCommand {
 
     // Load pricing so formatCredits() can render real values instead of '-'.
     // Failures are swallowed: the list still renders without credit data.
-    await ensurePricingClient();
+    await ensurePricingClient(this.out);
     await catalog.pricing.load().catch(() => undefined);
 
-    let models = flags.mode ? Models.list({ mode: flags.mode as GenerationMode }) : Models.list();
+    let models = ALL_MODELS.filter((m) => m.mode !== 'json' && DEFAULT_VISIBLE_RELEASES.includes(releaseOf(m)));
+    if (flags.mode) models = models.filter((m) => m.mode === (flags.mode as GenerationMode));
 
-    if (!flags.disabled) models = models.filter((m) => !m.disabled);
+    if (!flags.disabled) models = models.filter((m) => !m.deprecated);
 
     if (flags.provider) {
       const p = flags.provider.toLowerCase();
@@ -87,9 +88,9 @@ export default class ModelsList extends BaseCommand {
           provider: m.provider,
           mode: m.mode,
           inputType: m.inputType,
-          disabled: m.disabled ?? false,
+          disabled: m.deprecated ?? false,
           workflow: m.workflow,
-          ...(flags.params ? { params: Object.keys(Models.toSchema(m.id)) } : {}),
+          ...(flags.params ? { params: Object.keys(Model(m.id).params().toSchema()) } : {}),
         })),
       );
       return;

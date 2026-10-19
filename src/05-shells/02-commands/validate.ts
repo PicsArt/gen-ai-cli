@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as readline from 'node:readline';
 import { Flags } from '@oclif/core';
-import { findModel, Models } from '@picsart/ai-sdk';
+import { findModel, Model } from '@picsart/ai-sdk';
 import { UsageError } from '#infra/errors/usage.ts';
 import { ValidationError } from '#infra/errors/validation.ts';
 import { BaseCommand } from '#root/base-command.ts';
@@ -61,7 +61,7 @@ export default class Validate extends BaseCommand {
     }
 
     if (flags.schema) {
-      const schema = Models.toSchema(model.id);
+      const schema = Model(model.id).params().toSchema();
       this.out.json(schema);
       return;
     }
@@ -86,7 +86,7 @@ export default class Validate extends BaseCommand {
       throw new UsageError('Invalid JSON input');
     }
 
-    const result = Models.validate(model.id, input);
+    const result = Model(model.id).validate(input);
     if (result.valid) {
       this.out.success(`Valid payload for ${model.name} (${model.id})`);
     } else {

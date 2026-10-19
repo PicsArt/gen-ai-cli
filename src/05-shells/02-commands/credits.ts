@@ -15,7 +15,7 @@ Use this before generating to check if you have enough credits.`;
   ];
 
   async run(): Promise<void> {
-    const { authenticatedFetch } = await getAuthenticatedFetch();
+    const { authenticatedFetch } = await getAuthenticatedFetch(this.out);
     const apiUrl = getApiUrl();
 
     const res = await authenticatedFetch(`${apiUrl}/guard/credits`);

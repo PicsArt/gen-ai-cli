@@ -58,7 +58,7 @@ vi.mock('node:readline', () => ({
   },
 }));
 
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS, Model } from '@picsart/ai-sdk';
 import type { CliDeps } from '#root/deps.ts';
 import {
   deriveTopLevelPromptFromMulti,
@@ -147,7 +147,7 @@ describe('resolveInputs — dispatch', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('resolveInputs — file-upload gate', () => {
-  const model = Models.list().find((m) => !m.disabled) ?? ({} as never);
+  const model = ALL_MODELS.find((m) => !m.deprecated) ?? ({} as never);
 
   function scriptedWithFiles(files: Record<string, unknown>) {
     resolveInteractiveMock.mockReset();
@@ -163,6 +163,7 @@ describe('resolveInputs — file-upload gate', () => {
     ['videos', { videos: ['./local.mp4'] }],
     ['audios', { audios: ['./local.mp3'] }],
     ['staticMask', { staticMask: './mask.png' }],
+    ['mask', { mask: './edit-mask.png' }],
     ['sceneImage', { sceneImage: './scene.png' }],
     ['styleImage', { styleImage: './style.png' }],
   ])('runs the upload step when the only file slot set is %s', async (_slot, files) => {
@@ -187,7 +188,7 @@ describe('resolveInputs — file-upload gate', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('resolveInputs — multi-shot pre-flight on the interactive path', () => {
-  const model = Models.list().find((m) => !m.disabled) ?? ({} as never);
+  const model = ALL_MODELS.find((m) => !m.deprecated) ?? ({} as never);
 
   it('rejects interactive multiShot params without a shotType', async () => {
     resolveInteractiveMock.mockReset();
@@ -243,16 +244,16 @@ describe('resolveInputs — multi-shot pre-flight on the interactive path', () =
 
 describe('flagsFullySpecifyInputs — videoUrls/audioUrls models', () => {
   // Non-text-primary so no prompt is needed to fully specify (v2v extends).
-  const videoUrlsOnly = Models.list().find(
+  const videoUrlsOnly = ALL_MODELS.find(
     (m) =>
-      !m.disabled &&
+      !m.deprecated &&
       !m.inputType.startsWith('t') &&
-      !Models.getFileParam(m.id, 'videoUrl') &&
-      !!Models.getFileParam(m.id, 'videoUrls'),
+      !Model(m.id).params().file('videoUrl') &&
+      !!Model(m.id).params().file('videoUrls'),
   );
   // All audioUrls-only models today are text-primary (tts) — pass a prompt.
-  const audioUrlsOnly = Models.list().find(
-    (m) => !m.disabled && !Models.getFileParam(m.id, 'audioUrl') && !!Models.getFileParam(m.id, 'audioUrls'),
+  const audioUrlsOnly = ALL_MODELS.find(
+    (m) => !m.deprecated && !Model(m.id).params().file('audioUrl') && !!Model(m.id).params().file('audioUrls'),
   );
 
   it("accepts --video-urls for the 'video' requirement", () => {

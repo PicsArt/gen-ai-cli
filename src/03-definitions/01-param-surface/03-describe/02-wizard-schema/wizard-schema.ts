@@ -21,6 +21,8 @@
  *                  a runner knows a file input exists; the file pipeline
  *                  owns resolution (wizard-reader skips these answers)
  *   object       → { kind: 'object', fields: WizardStep[], arrayMax? }
+ *                  or a JSON text prompt for open objects
+ *   unknown      → JSON text prompt
  *
  * Top-level steps inherit `required` from
  * `surface.requiredInModels.length > 0`. Subfield steps (inside an
@@ -38,7 +40,7 @@ import type {
   ObjectDescriptor,
   ParamDescriptor,
 } from '@picsart/ai-sdk';
-import { humanizeKey } from '../../01-primitives/02-coercion/index.ts';
+import { humanizeKey, usesJsonObject } from '../../01-primitives/02-coercion/index.ts';
 import type { Catalog, ParamSurface } from '../../02-catalog/index.ts';
 
 export type SelectChoice<T extends string | number> = {
@@ -89,6 +91,7 @@ export type WizardStep =
        * the runner must collect exactly one record, not a list.
        */
       array: boolean;
+      arrayMin?: number;
       arrayMax?: number;
     };
 
@@ -137,6 +140,8 @@ function descriptorToStep(
   required: boolean,
 ): WizardStep | undefined {
   switch (descriptor.kind) {
+    case 'unknown':
+      return withRequired({ kind: 'text', key, label: `${label} (JSON value)` }, required);
     case 'text':
       return withRequired(
         { kind: 'text', key, label, minLength: descriptor.minLength, maxLength: descriptor.maxLength },
@@ -235,14 +240,17 @@ function makeSelectStep(
 /* ─────────────────────────────────────────────────────────────────────── */
 
 function makeObjectStep(key: string, label: string, descriptor: ObjectDescriptor): WizardStep {
+  if (usesJsonObject(descriptor)) {
+    return { kind: 'text', key, label: `${label} (JSON ${descriptor.array ? 'array of objects' : 'object'})` };
+  }
   // Build subfield steps, then order them required-first / optional-last
   // so the wizard asks for the meaningful fields before the filler ones.
   // For e.g. `multiPrompt { index (default 0), prompt, duration }` this
   // surfaces `prompt` then `duration` then `index` — matching how a user
   // thinks about a shot.
   const fields: WizardStep[] = [];
-  for (const [subKey, subDesc] of Object.entries(descriptor.fields)) {
-    const subRequired = !hasDefault(subDesc);
+  for (const [subKey, subDesc] of Object.entries(descriptor.fields ?? {})) {
+    const subRequired = subDesc.required !== false && !hasDefault(subDesc);
     const subLabel = humanizeKey(subKey);
     const subStep = descriptorToStep(subKey, subLabel, subDesc, subRequired);
     if (subStep !== undefined) fields.push(subStep);
@@ -252,7 +260,14 @@ function makeObjectStep(key: string, label: string, descriptor: ObjectDescriptor
     const br = b.required === true ? 0 : 1;
     return ar - br;
   });
-  const step: WizardStep = { kind: 'object', key, label, fields, array: descriptor.array !== undefined };
+  const step: WizardStep = {
+    kind: 'object',
+    key,
+    label,
+    fields,
+    array: descriptor.array !== undefined,
+    ...(descriptor.array?.min !== undefined ? { arrayMin: descriptor.array.min } : {}),
+  };
   if (descriptor.array?.max !== undefined) {
     return { ...step, arrayMax: descriptor.array.max };
   }

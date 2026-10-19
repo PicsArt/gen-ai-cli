@@ -1,5 +1,5 @@
 import { Args } from '@oclif/core';
-import { findModel, Models } from '@picsart/ai-sdk';
+import { findModel, Model } from '@picsart/ai-sdk';
 import { UsageError } from '#infra/errors/usage.ts';
 import { BaseCommand } from '#root/base-command.ts';
 
@@ -42,8 +42,8 @@ export default class ModelsCompare extends BaseCommand {
     if (!a) throw new UsageError(`Model not found: ${args.modelA}`);
     if (!b) throw new UsageError(`Model not found: ${args.modelB}`);
 
-    const schemaA = Models.toSchema(a.id);
-    const schemaB = Models.toSchema(b.id);
+    const schemaA = Model(a.id).params().toSchema();
+    const schemaB = Model(b.id).params().toSchema();
 
     if (this.isJsonMode) {
       this.out.json({

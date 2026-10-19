@@ -16,14 +16,14 @@
 import type { GenerationContext, ModelDefinition } from '@picsart/ai-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const getFileParamMock = vi.hoisted(() => vi.fn());
+const fileMock = vi.hoisted(() => vi.fn());
 const promptFileInputMock = vi.hoisted(() => vi.fn());
 const promptImageInputsMock = vi.hoisted(() => vi.fn());
 const selectWithNavMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@picsart/ai-sdk', async () => {
   const real = await vi.importActual<typeof import('@picsart/ai-sdk')>('@picsart/ai-sdk');
-  return { ...real, Models: { ...real.Models, getFileParam: getFileParamMock } };
+  return { ...real, Model: (id: string) => ({ params: () => ({ file: (key: string) => fileMock(id, key) }) }) };
 });
 vi.mock('./prompt-input.ts', () => ({
   promptFileInput: promptFileInputMock,
@@ -46,13 +46,17 @@ function makeModel(inputType: string): ModelDefinition {
   return { id: 'm-test', name: 'Test model', inputType, mode: 'video' } as ModelDefinition;
 }
 
-/** Configure getFileParam to answer only for the given slot keys. */
+/** Configure the file-param accessor to answer only for the given slot keys. */
 function declareSlots(slots: Record<string, { required?: boolean; max?: number; label?: string }>) {
-  getFileParamMock.mockImplementation((_id: string, key: string) => slots[key]);
+  fileMock.mockImplementation((_id: string, key: string) => {
+    const slot = slots[key];
+    if (!slot) return undefined;
+    return { required: slot.required, label: slot.label, array: slot.max != null ? { max: slot.max } : undefined };
+  });
 }
 
 afterEach(() => {
-  getFileParamMock.mockReset();
+  fileMock.mockReset();
   promptFileInputMock.mockReset();
   promptImageInputsMock.mockReset();
   selectWithNavMock.mockReset();

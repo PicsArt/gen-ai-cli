@@ -2,7 +2,7 @@ import assert from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findModel, Models } from '@picsart/ai-sdk';
+import { ALL_MODELS, DEFAULT_VISIBLE_RELEASES, findModel, isVisibleForReleases, releaseOf } from '@picsart/ai-sdk';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = join(__dirname, '..', '..', 'bin', 'dev.mjs');
@@ -41,17 +41,19 @@ function runCliFull(args: string[]): string {
   return (child.stdout ?? '') + (child.stderr ?? '');
 }
 
+const visibleModels = ALL_MODELS.filter((model) => model.mode !== 'json' && isVisibleForReleases(model));
+
 console.log('models');
 
 await test('list returns all enabled models by default', () => {
   const output = runCli(['models']);
-  const enabledCount = Models.list().filter((m) => !m.disabled).length;
+  const enabledCount = visibleModels.length;
   assert.ok(output.includes(`${enabledCount} models`), `Expected "${enabledCount} models" in output`);
 });
 
 await test('--mode video filters to video models', () => {
   const output = runCli(['models', '--mode', 'video']);
-  const videoCount = Models.list().filter((m) => m.mode === 'video' && !m.disabled).length;
+  const videoCount = visibleModels.filter((m) => m.mode === 'video').length;
   assert.ok(output.includes(`${videoCount} models`), `Expected "${videoCount} models" in output`);
 });
 
@@ -69,13 +71,15 @@ await test('--provider filters correctly', () => {
 
 await test('--input-type i2v filters to i2v models', () => {
   const output = runCli(['models', '--input-type', 'i2v']);
-  const i2vCount = Models.list().filter((m) => m.inputType === 'i2v' && !m.disabled).length;
+  const i2vCount = visibleModels.filter((m) => m.inputType === 'i2v').length;
   assert.ok(output.includes(`${i2vCount} models`), `Expected "${i2vCount} models" in output`);
 });
 
 await test('--disabled includes disabled models', () => {
   const output = runCli(['models', '--disabled']);
-  const allCount = Models.list().length;
+  const allCount = ALL_MODELS.filter(
+    (m) => m.mode !== 'json' && DEFAULT_VISIBLE_RELEASES.includes(releaseOf(m)),
+  ).length;
   assert.ok(output.includes(`${allCount} models`), `Expected "${allCount} models" in output`);
 });
 
@@ -90,7 +94,7 @@ await test('--json outputs valid JSON', () => {
 
 // Pick real catalog entries instead of hardcoding ids — hardcoded ids rot when
 // the SDK catalog renames or retires a model (kling-v3-pro did exactly that).
-const enabledModels = Models.list().filter((model) => !model.disabled);
+const enabledModels = visibleModels;
 const [infoModel, compareModel] = enabledModels;
 
 await test('info shows correct model details', () => {
@@ -106,7 +110,7 @@ await test('info shows correct model details', () => {
 });
 
 await test('info by display name works', () => {
-  const model = Models.list().find((m) => !m.disabled);
+  const model = visibleModels[0];
   if (!model) {
     assert.fail('no enabled model found');
     return;

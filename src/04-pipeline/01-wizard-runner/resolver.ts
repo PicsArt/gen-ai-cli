@@ -98,6 +98,7 @@ export async function resolveInteractive(
         'video-urls': flags['video-urls'] as string[] | undefined,
         'audio-urls': flags['audio-urls'] as string[] | undefined,
         'static-mask': flags['static-mask'] as string | undefined,
+        mask: flags.mask as string | undefined,
         'scene-image': flags['scene-image'] as string | undefined,
         'style-image': flags['style-image'] as string | undefined,
         prompt: typeof flags.prompt === 'string' ? flags.prompt : undefined,

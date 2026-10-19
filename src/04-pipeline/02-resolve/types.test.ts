@@ -28,7 +28,7 @@
  *     - falls back to SDK_GAP_FLAGS for fields without a descriptor
  *     - silently ignores flags outside the catalog + gap list
  */
-import { ALL_MODELS, getModel, Models } from '@picsart/ai-sdk';
+import { ALL_MODELS, getModel, Model } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { defineFlow, type FlowSpec } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
@@ -92,7 +92,7 @@ describe('getModelsForOperation', () => {
 
   it('excludes disabled models', () => {
     const all = getModelsForOperation(ACCEPT_ALL);
-    expect(all.every((m) => m.disabled !== true)).toBe(true);
+    expect(all.every((m) => m.deprecated !== true)).toBe(true);
   });
 
   it('returns empty when nothing passes the filter', () => {
@@ -269,7 +269,7 @@ describe('buildParamsFromFlags', () => {
 describe('validateFileSlotLimits', () => {
   // Anchor to a real catalog model with a small imageUrls cap so the test
   // survives catalog changes (the cap is read from the catalog, not hardcoded).
-  const capped = ALL_MODELS.map((m) => ({ m, cap: Models.getFileParam(m.id, 'imageUrls')?.max })).find(
+  const capped = ALL_MODELS.map((m) => ({ m, cap: Model(m.id).params().file('imageUrls')?.array?.max })).find(
     (x) => typeof x.cap === 'number' && x.cap >= 1 && x.cap <= 6,
   );
 

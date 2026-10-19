@@ -21,7 +21,7 @@ export const EXTEND_FLOW = defineFlow({
   requiredInputs: ['video'],
   examples: [
     'gen-ai extend --video clip.mp4',
-    'gen-ai extend -m sora-2-extend --video clip.mp4 -p "a sudden gust of wind"',
+    'gen-ai extend -m seedance-2.5-video-extend --video clip.mp4 -p "a sudden gust of wind"',
   ],
 });
 

@@ -2,7 +2,7 @@
  * Scripted resolver — reads inputs from CLI flags, validates, fails fast.
  * No interactive prompts. Every missing input is a clear error.
  */
-import { findModel, Models } from '@picsart/ai-sdk';
+import { findModel, Model } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import { ValidationError } from '#infra/errors/validation.ts';
@@ -63,8 +63,8 @@ export async function resolveScripted(
   // `startFrame` and the user passed `-i`, route the first image into
   // `start-frame` so a single CLI surface covers both shapes.
   const imgArr = cleanArray('--image (-i)', flags.image as string[] | undefined);
-  const modelHasImageUrls = !!Models.getFileParam(model.id, 'imageUrls');
-  const modelHasStartFrame = !!Models.getFileParam(model.id, 'startFrame');
+  const modelHasImageUrls = !!Model(model.id).params().file('imageUrls');
+  const modelHasStartFrame = !!Model(model.id).params().file('startFrame');
   if (imgArr && !modelHasImageUrls && modelHasStartFrame && !flags['start-frame']) {
     files.startFrame = imgArr[0];
   } else if (imgArr) {
@@ -89,7 +89,7 @@ export async function resolveScripted(
   if (flags.video) {
     const v = flags.video as string;
     rejectEmpty('--video', v);
-    const onlyVideoUrls = !Models.getFileParam(model.id, 'videoUrl') && !!Models.getFileParam(model.id, 'videoUrls');
+    const onlyVideoUrls = !Model(model.id).params().file('videoUrl') && !!Model(model.id).params().file('videoUrls');
     if (onlyVideoUrls && !flags['video-urls']) {
       files.videos = [v];
     } else {
@@ -99,7 +99,7 @@ export async function resolveScripted(
   if (flags.audio) {
     const v = flags.audio as string;
     rejectEmpty('--audio', v);
-    const onlyAudioUrls = !Models.getFileParam(model.id, 'audioUrl') && !!Models.getFileParam(model.id, 'audioUrls');
+    const onlyAudioUrls = !Model(model.id).params().file('audioUrl') && !!Model(model.id).params().file('audioUrls');
     if (onlyAudioUrls && !flags['audio-urls']) {
       files.audios = [v];
     } else {
@@ -138,6 +138,11 @@ export async function resolveScripted(
     const value = flags['static-mask'] as string;
     rejectEmpty('--static-mask', value);
     files.staticMask = value;
+  }
+  if (flags.mask) {
+    const value = flags.mask as string;
+    rejectEmpty('--mask', value);
+    files.mask = value;
   }
   if (flags['scene-image']) {
     const value = flags['scene-image'] as string;

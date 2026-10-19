@@ -126,6 +126,7 @@ describe('appendHistory — URL sanitization', () => {
         startFrame: 'https://cdn.example.com/s.png?t=x',
         endFrame: 'https://cdn.example.com/e.png?t=x',
         staticMask: 'https://cdn.example.com/m.png?t=x',
+        mask: 'https://cdn.example.com/inpaint-mask.png?token=secret',
         sceneImage: 'https://cdn.example.com/scene.png?t=x',
         styleImage: 'https://cdn.example.com/style.png?t=x',
       }),
@@ -136,6 +137,7 @@ describe('appendHistory — URL sanitization', () => {
     expect(saved.startFrame).toBe('https://cdn.example.com/s.png');
     expect(saved.endFrame).toBe('https://cdn.example.com/e.png');
     expect(saved.staticMask).toBe('https://cdn.example.com/m.png');
+    expect(saved.mask).toBe('https://cdn.example.com/inpaint-mask.png');
     expect(saved.sceneImage).toBe('https://cdn.example.com/scene.png');
     expect(saved.styleImage).toBe('https://cdn.example.com/style.png');
   });

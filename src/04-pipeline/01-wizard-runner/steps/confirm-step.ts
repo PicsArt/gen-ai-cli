@@ -43,6 +43,7 @@ export async function runConfirmStep(
     ...(files.videos ?? []),
     ...(files.audios ?? []),
     ...(files.staticMask ? [files.staticMask] : []),
+    ...(files.mask ? [files.mask] : []),
     ...(files.sceneImage ? [files.sceneImage] : []),
     ...(files.styleImage ? [files.styleImage] : []),
   ];

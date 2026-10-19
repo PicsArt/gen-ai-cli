@@ -16,6 +16,7 @@
  *                 so membership is never validated)
  *   file          → throws Error (handled by file pipeline)
  *   object        → throws Error (handled by interpret/objects)
+ *   unknown       JSON-compatible value (including null)     → unchanged shape
  *
  * Validation failures throw `UsageError` so the CLI surfaces them as
  * user-facing errors with the exact problem cited.
@@ -24,6 +25,7 @@ import type {
   CatalogDescriptor,
   EnumDescriptor,
   EnumOption,
+  ObjectDescriptor,
   ParamDescriptor,
   RangeDescriptor,
   TextDescriptor,
@@ -96,6 +98,7 @@ export function humanizeKey(key: string): string {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export function coerceToDescriptor(raw: unknown, descriptor: ParamDescriptor): unknown {
+  if (descriptor.kind === 'unknown') return raw === undefined ? undefined : jsonValue(raw);
   // null and undefined both mean "flag not provided" (batch manifests can
   // carry explicit nulls). Coercing null onward would invent values, e.g.
   // Number(null) === 0 for range descriptors.
@@ -248,4 +251,74 @@ function describeValue(raw: unknown): string {
   if (raw === null) return 'null';
   if (raw === undefined) return 'undefined';
   return `${typeof raw} "${String(raw)}"`;
+}
+
+/** Parse a JSON flag/prompt once, leaving already structured answers intact. */
+export function parseJsonInput(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new UsageError('Expected valid JSON (quote string values with double quotes).');
+  }
+}
+
+/** Open dictionaries and objects with extras need a whole-object JSON input. */
+export function usesJsonObject(descriptor: ObjectDescriptor): boolean {
+  return descriptor.fields === undefined || descriptor.additionalProperties !== undefined;
+}
+
+/** Reject values JSON cannot represent, without stripping keys or converting null. */
+function jsonValue(raw: unknown): unknown {
+  if (raw === null || typeof raw === 'string' || typeof raw === 'boolean') return raw;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  if (Array.isArray(raw)) return raw.map(jsonValue);
+  if (typeof raw === 'object' && raw !== null && Object.getPrototypeOf(raw) === Object.prototype) {
+    return Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, jsonValue(value)]));
+  }
+  throw new UsageError('Expected a JSON value.');
+}
+
+/** Validate structured JSON recursively, preserving explicitly allowed extra keys. */
+export function coerceJsonObject(raw: unknown, descriptor: ObjectDescriptor): unknown {
+  if (raw === undefined) return undefined;
+  if (descriptor.array !== undefined) {
+    if (!Array.isArray(raw)) throw new UsageError('Expected a JSON array of objects.');
+    const { min, max } = descriptor.array;
+    if (min !== undefined && raw.length < min) throw new UsageError(`Expected at least ${min} objects.`);
+    if (max !== undefined && raw.length > max) throw new UsageError(`Expected at most ${max} objects.`);
+    return raw.map((item) => coerceJsonObject(item, { ...descriptor, array: undefined }));
+  }
+  if (
+    raw === null ||
+    typeof raw !== 'object' ||
+    Array.isArray(raw) ||
+    Object.getPrototypeOf(raw) !== Object.prototype
+  ) {
+    throw new UsageError('Expected a JSON object.');
+  }
+  const source = raw as Record<string, unknown>;
+  const fields = descriptor.fields ?? {};
+  const entries: [string, unknown][] = [];
+  for (const [key, field] of Object.entries(fields)) {
+    const value = Object.hasOwn(source, key) ? source[key] : undefined;
+    if (value === undefined) {
+      if ('default' in field && field.default !== undefined) entries.push([key, field.default]);
+      else if (field.required !== false) throw new UsageError(`Missing required object field '${key}'.`);
+    } else {
+      entries.push([key, coerceJsonField(value, field)]);
+    }
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (Object.hasOwn(fields, key)) continue;
+    if (!descriptor.additionalProperties) throw new UsageError(`Unknown object field '${key}'.`);
+    entries.push([key, coerceJsonField(value, descriptor.additionalProperties)]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function coerceJsonField(raw: unknown, descriptor: ParamDescriptor): unknown {
+  if (descriptor.kind === 'object') return coerceJsonObject(raw, descriptor);
+  if (raw === null && descriptor.kind !== 'unknown') throw new UsageError('Expected a non-null field value.');
+  return coerceToDescriptor(raw, descriptor);
 }

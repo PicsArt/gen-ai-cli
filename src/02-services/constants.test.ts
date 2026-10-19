@@ -9,6 +9,8 @@ import {
   CLI_VERSION,
   getApiUrl,
   getCredentialsPath,
+  getDeviceAuthUrl,
+  getDeviceClientId,
   getOAuthAuthUrl,
   getTokenExchangeUrl,
   getTokenRefreshUrl,
@@ -170,10 +172,59 @@ describe('OAuth URL helpers', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('getCredentialsPath', () => {
+  let originalApi: string | undefined;
+
+  beforeEach(() => {
+    originalApi = process.env.GEN_AI_API_URL;
+    delete process.env.GEN_AI_API_URL;
+  });
+  afterEach(() => {
+    if (originalApi !== undefined) process.env.GEN_AI_API_URL = originalApi;
+    else delete process.env.GEN_AI_API_URL;
+  });
+
   it('lives under the data dir and is named credentials.json', () => {
     const credPath = getCredentialsPath();
     expect(credPath.endsWith('credentials.json')).toBe(true);
     expect(credPath).toContain('.gen-ai');
+  });
+
+  // Production keeps the legacy filename so upgrading the CLI does not orphan
+  // every existing user's session.
+  it('uses the unsuffixed legacy filename for production', () => {
+    process.env.GEN_AI_API_URL = API_URL;
+    expect(path.basename(getCredentialsPath())).toBe('credentials.json');
+  });
+
+  // The refresh endpoint's host is derived from GEN_AI_API_URL at call time, so
+  // a shared file lets a stage refresh token be POSTed to the prod auth server
+  // (and vice versa), which the server rejects with invalid_grant.
+  it('gives a non-production environment its own file', () => {
+    process.env.GEN_AI_API_URL = 'https://api.example-stage.test';
+    const stagePath = getCredentialsPath();
+    expect(path.basename(stagePath)).toBe('credentials.api.example-stage.test.json');
+
+    delete process.env.GEN_AI_API_URL;
+    expect(stagePath).not.toBe(getCredentialsPath());
+  });
+
+  it('keeps distinct non-production environments apart', () => {
+    process.env.GEN_AI_API_URL = 'https://api.example-stage.test';
+    const stage = getCredentialsPath();
+    process.env.GEN_AI_API_URL = 'http://localhost:3000';
+    const local = getCredentialsPath();
+    expect(stage).not.toBe(local);
+  });
+
+  // A host is a path segment here — a colon in an authority (localhost:3000)
+  // must not produce a surprising filename or escape the data dir.
+  it('produces a filesystem-safe name for a host with a port', () => {
+    process.env.GEN_AI_API_URL = 'http://localhost:3000';
+    const base = path.basename(getCredentialsPath());
+    expect(base.startsWith('credentials.')).toBe(true);
+    expect(base.endsWith('.json')).toBe(true);
+    expect(base).not.toContain(path.sep);
+    expect(base).not.toContain(':');
   });
 });
 
@@ -238,5 +289,53 @@ describe('resolveUserPath', () => {
   it('leaves a relative path without leading ~ untouched', () => {
     expect(resolveUserPath('./relative')).toBe('./relative');
     expect(resolveUserPath('plain')).toBe('plain');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  getDeviceAuthUrl / getDeviceClientId                                   */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('getDeviceAuthUrl / getDeviceClientId', () => {
+  let originalApi: string | undefined;
+  let originalAuth: string | undefined;
+  let originalCid: string | undefined;
+  beforeEach(() => {
+    originalApi = process.env.GEN_AI_API_URL;
+    originalAuth = process.env.GEN_AI_DEVICE_AUTH_URL;
+    originalCid = process.env.GEN_AI_DEVICE_CLIENT_ID;
+    delete process.env.GEN_AI_API_URL;
+    delete process.env.GEN_AI_DEVICE_AUTH_URL;
+    delete process.env.GEN_AI_DEVICE_CLIENT_ID;
+  });
+  afterEach(() => {
+    if (originalApi === undefined) delete process.env.GEN_AI_API_URL;
+    else process.env.GEN_AI_API_URL = originalApi;
+    if (originalAuth === undefined) delete process.env.GEN_AI_DEVICE_AUTH_URL;
+    else process.env.GEN_AI_DEVICE_AUTH_URL = originalAuth;
+    if (originalCid === undefined) delete process.env.GEN_AI_DEVICE_CLIENT_ID;
+    else process.env.GEN_AI_DEVICE_CLIENT_ID = originalCid;
+  });
+
+  it('derives prod auth base + client id from the default API host', () => {
+    delete process.env.GEN_AI_API_URL;
+    expect(getDeviceAuthUrl()).toBe('https://auth.picsart.com/api');
+    expect(getDeviceClientId()).toBe('auth-service-Gen-AI-CLI');
+  });
+  it('derives stage auth base + client id from the stage API host', () => {
+    process.env.GEN_AI_API_URL = 'https://api.example-stage.test';
+    expect(getDeviceAuthUrl()).toBe('https://auth.example-stage.test/api');
+    expect(getDeviceClientId()).toBe('auth-service-gen-ai-cli');
+  });
+  it('swaps a hyphenated api-<x> label for auth-<x>', () => {
+    process.env.GEN_AI_API_URL = 'https://api-eu.example.test';
+    expect(getDeviceAuthUrl()).toBe('https://auth-eu.example.test/api');
+    expect(getDeviceClientId()).toBe('auth-service-Gen-AI-CLI');
+  });
+  it('honors explicit overrides', () => {
+    process.env.GEN_AI_DEVICE_AUTH_URL = 'https://auth.example-dev.test/api';
+    process.env.GEN_AI_DEVICE_CLIENT_ID = 'custom-cli';
+    expect(getDeviceAuthUrl()).toBe('https://auth.example-dev.test/api');
+    expect(getDeviceClientId()).toBe('custom-cli');
   });
 });

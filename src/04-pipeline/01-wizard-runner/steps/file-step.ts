@@ -18,6 +18,7 @@ export interface FileStepFlags {
   'video-urls'?: string[];
   'audio-urls'?: string[];
   'static-mask'?: string;
+  mask?: string;
   'scene-image'?: string;
   'style-image'?: string;
   'style-reference-urls'?: string[];
@@ -26,6 +27,7 @@ export interface FileStepFlags {
 
 type FileStepCtx = Partial<GenerationContext> & {
   staticMask?: string;
+  mask?: string;
   sceneImage?: string;
   styleImage?: string;
   styleReferenceUrls?: string[];
@@ -64,6 +66,7 @@ export async function runFileStep(
   if (flags['static-mask']) {
     ctx.staticMask = flags['static-mask'];
   }
+  if (flags.mask) ctx.mask = flags.mask;
   if (flags['scene-image']) {
     ctx.sceneImage = flags['scene-image'];
   }
@@ -92,6 +95,7 @@ export async function runFileStep(
     videos: merged.videoUrls,
     audios: merged.audioUrls,
     staticMask: merged.staticMask,
+    mask: merged.mask,
     sceneImage: merged.sceneImage,
     styleImage: merged.styleImage,
     styleReferences: merged.styleReferenceUrls,

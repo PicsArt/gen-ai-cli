@@ -10,8 +10,6 @@
  *   - Uses init.signal when provided; otherwise applies a default timeout.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createColorManager } from '#infra/ui-core/color.ts';
-import { createOutputManager } from '#infra/ui-core/output.ts';
 
 const refreshAccessToken = vi.fn();
 const getEnvCredentials = vi.fn();
@@ -21,20 +19,14 @@ vi.mock('#services/auth.ts', () => ({
   getEnvCredentials: (...args: unknown[]) => getEnvCredentials(...args),
 }));
 
-import { createAuthenticatedFetch } from './authenticated-fetch.ts';
+import type { AuthNotifier } from './auth.ts';
+import { createAuthenticatedFetch as createAuthFetch } from './authenticated-fetch.ts';
 
-// ⚠ DESIGN NOTE: createAuthenticatedFetch reaches for the global
-// `getOutput()` singleton on the 401 retry path. That violates the
-// project's "no singletons" rule. Test-setup workaround: prime the
-// singleton so tests can run. Real fix: pass an `onMessage` callback
-// through opts, or move logging up to the caller.
-createOutputManager({
-  color: createColorManager({ enabled: false }),
-  quiet: true,
-  debug: false,
-  jsonMode: false,
-  plainMode: false,
-});
+// The 401 retry path takes its notifier as an argument, so the suite injects a
+// silent one rather than priming a global output manager. Shimmed here so the
+// cases below stay focused on fetch behaviour.
+const silent: AuthNotifier = { info: () => undefined, warn: () => undefined };
+const createAuthenticatedFetch = (getCreds: Parameters<typeof createAuthFetch>[0]) => createAuthFetch(getCreds, silent);
 
 let originalFetch: typeof fetch;
 
@@ -89,6 +81,52 @@ describe('createAuthenticatedFetch — auth headers', () => {
     }));
     await auth('https://api.example.com/path', { headers: { 'X-Custom': 'value' } });
     expect(capturedHeaders['X-Custom']).toBe('value');
+    expect(capturedHeaders.Authorization).toBe('Bearer t');
+  });
+
+  // @picsart/workflows-client 2.x hands custom fetches `Object.fromEntries(new
+  // Headers(...))` — lowercase keys. A case-sensitive spread kept both
+  // `Content-Type` and `content-type`, which fetch joined into
+  // "application/json, application/json" and the gateway rejected the body
+  // ("params has wrong value undefined").
+  it('merges caller headers case-insensitively — one value per header name', async () => {
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response('ok', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 't',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    await auth('https://api.example.com/path', {
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+    });
+    expect(new Headers(capturedHeaders).get('content-type')).toBe('application/json');
+    const contentTypeKeys = Object.keys(capturedHeaders).filter((k) => k.toLowerCase() === 'content-type');
+    expect(contentTypeKeys).toHaveLength(1);
+  });
+
+  it('forwards headers passed as a Headers instance', async () => {
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response('ok', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 't',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    await auth('https://api.example.com/path', { headers: new Headers({ 'X-Custom': 'value' }) });
+    expect(new Headers(capturedHeaders).get('x-custom')).toBe('value');
     expect(capturedHeaders.Authorization).toBe('Bearer t');
   });
 });
@@ -322,6 +360,34 @@ describe('createAuthenticatedFetch — 401 retry', () => {
     expect(headersByCall[1].Authorization).toBe('Bearer NEW');
     expect(headersByCall[1]['user-id']).toBe('uid-new');
     expect(headersByCall[1]['X-Custom']).toBe('kept');
+  });
+
+  it('on retry, the refreshed identity replaces a lowercase caller authorization', async () => {
+    const headersByCall: Record<string, string>[] = [];
+    let callCount = 0;
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      callCount++;
+      headersByCall.push(init?.headers as Record<string, string>);
+      return new Response('', { status: callCount === 1 ? 401 : 200 });
+    }) as unknown as typeof fetch;
+    refreshAccessToken.mockResolvedValue({
+      token: 'NEW',
+      uid: 'uid-new',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+
+    const auth = createAuthenticatedFetch(() => ({
+      token: 'OLD',
+      uid: 'u',
+      refreshToken: 'r',
+      email: 'a@b',
+      expiresAt: '2099-01-01T00:00:00Z',
+    }));
+    await auth('https://api.example.com/x', { headers: { authorization: 'Bearer STALE' } });
+
+    expect(new Headers(headersByCall[1]).get('authorization')).toBe('Bearer NEW');
   });
 
   it('does NOT retry a 401 when the body is a one-shot ReadableStream', async () => {

@@ -2,7 +2,7 @@
  * Dry-run validation — builds and validates payload without executing.
  * No UI imports. Returns validation result.
  */
-import { Models } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import type { ResolvedInputs } from '#root/types.ts';
 
 export interface ValidationResult {
@@ -30,12 +30,13 @@ export function validateDryRun(inputs: ResolvedInputs): ValidationResult {
   if (inputs.files.videos?.length) ctx.videoUrls = inputs.files.videos;
   if (inputs.files.audios?.length) ctx.audioUrls = inputs.files.audios;
   if (inputs.files.staticMask) ctx.staticMask = inputs.files.staticMask;
+  if (inputs.files.mask) ctx.mask = inputs.files.mask;
   if (inputs.files.sceneImage) ctx.sceneImage = inputs.files.sceneImage;
   if (inputs.files.styleImage) ctx.styleImage = inputs.files.styleImage;
   if (inputs.files.styleReferences?.length) ctx.styleReferenceUrls = inputs.files.styleReferences;
 
-  const result = Models.validate(inputs.model.id, ctx);
-  const schema = Models.toSchema(inputs.model.id);
+  const result = Model(inputs.model.id).validate(ctx);
+  const schema = Model(inputs.model.id).params().toSchema();
 
   return {
     valid: result.valid,

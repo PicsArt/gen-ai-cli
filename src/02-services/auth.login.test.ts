@@ -11,8 +11,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createColorManager } from '#infra/ui-core/color.ts';
-import { createOutputManager } from '#infra/ui-core/output.ts';
 
 const openInDefaultMock = vi.hoisted(() => vi.fn());
 
@@ -20,16 +18,11 @@ vi.mock('#infra/utils/open.ts', () => ({
   openInDefault: openInDefaultMock,
 }));
 
-import { login } from './auth.ts';
+import { type AuthNotifier, login } from './auth.ts';
 
-// login() logs through the OutputManager singleton — prime it quietly.
-createOutputManager({
-  color: createColorManager({ enabled: false }),
-  quiet: true,
-  debug: false,
-  jsonMode: false,
-  plainMode: false,
-});
+// login() takes its notifier as an argument, so the test hands it a silent one
+// instead of priming a global output manager.
+const silent: AuthNotifier = { info: () => undefined, warn: () => undefined };
 
 const realFetch = globalThis.fetch;
 
@@ -90,7 +83,7 @@ async function startLogin(): Promise<{
   redirectUri: string;
   state: string;
 }> {
-  const promise = login();
+  const promise = login(silent);
   await vi.waitFor(() => {
     expect(openInDefaultMock).toHaveBeenCalled();
   });

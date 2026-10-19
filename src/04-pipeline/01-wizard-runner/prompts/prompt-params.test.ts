@@ -183,6 +183,49 @@ describe('promptForParams — skipping rules', () => {
 /* ──────────────────────────────────────────────────────────────── */
 
 describe('promptForParams — object descriptors', () => {
+  it('collects multiple dialogue lines when the SDK declares no maximum', async () => {
+    schemaStepsMock.value = [
+      {
+        kind: 'object',
+        array: true,
+        key: 'dialogue',
+        label: 'Dialogue',
+        required: true,
+        arrayMin: 1,
+        fields: [{ kind: 'text', key: 'text', label: 'Text' }],
+      },
+    ];
+    askWithNavMock
+      .mockResolvedValueOnce('3')
+      .mockResolvedValueOnce('first')
+      .mockResolvedValueOnce('second')
+      .mockResolvedValueOnce('third');
+    const out = await promptForParams(testOut, model, emptyCtx);
+    expect((out as Record<string, unknown>).dialogue).toEqual([
+      { text: 'first' },
+      { text: 'second' },
+      { text: 'third' },
+    ]);
+  });
+
+  it('collects the minimum number of camera keyframes declared by the SDK', async () => {
+    schemaStepsMock.value = [
+      {
+        kind: 'object',
+        array: true,
+        key: 'cameraTrajectory',
+        label: 'Camera Trajectory',
+        required: true,
+        arrayMin: 2,
+        arrayMax: 12,
+        fields: [{ kind: 'text', key: 'height', label: 'Height' }],
+      },
+    ];
+    askWithNavMock.mockResolvedValueOnce('1').mockResolvedValueOnce('low').mockResolvedValueOnce('high');
+    const out = await promptForParams(testOut, model, emptyCtx);
+    expect((out as Record<string, unknown>).cameraTrajectory).toEqual([{ height: 'low' }, { height: 'high' }]);
+  });
+
   it('asks "how many?" then loops sub-steps per item', async () => {
     // `required: true` → skip the opt-in gate, go straight to "how many?".
     schemaStepsMock.value = [

@@ -6,7 +6,7 @@
  *   - order: [picker, ...descriptors, ...static]
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ModelLike } from '#param-surface';
 import { ALIAS_MAP, loadCatalog } from '#param-surface';
@@ -20,7 +20,7 @@ function mockModel(overrides: Partial<ModelDefinition>): ModelDefinition {
     name: 'Mock Model',
     inputType: 't2v',
     mode: 'video',
-    disabled: false,
+    deprecated: false,
     paramConfig: {},
     provider: 'picsart' as ModelDefinition['provider'],
     workflow: 'mock',
@@ -63,7 +63,7 @@ const T2I_C: ModelDefinition = mockModel({
 const VIDEO_FLOW = defineFlow({
   id: 'video',
   description: 'Test t2v flow',
-  modelFilter: (m) => m.inputType === 't2v' && m.disabled !== true,
+  modelFilter: (m) => m.inputType === 't2v' && m.deprecated !== true,
   staticFlagGroups: [],
   staticStepGroups: ['output', 'confirm'],
   requiredInputs: ['prompt'],
@@ -212,7 +212,7 @@ describe('composeWizardForFlow — order', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('composeWizardForFlow — against the real SDK, for every registered flow', () => {
-  const models = Models.list();
+  const models = ALL_MODELS;
   const catalog = loadCatalog(models, ALIAS_MAP);
 
   for (const [id, flow] of Object.entries(FLOWS)) {

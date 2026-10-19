@@ -30,7 +30,7 @@
  *      Drive save, history, extras.
  *   8. Friendly handling of `InsufficientCreditsError` (offers billing link).
  */
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { composeFlagsForFlow } from '#flows';
 import { ExitCode } from '#infra/errors/index.ts';
@@ -103,7 +103,7 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
       await enforceMaxCost(resolved.model, resolved.params, flags['max-cost'], deps.out);
     }
 
-    const { authenticatedFetch, creds } = await getAuthenticatedFetch();
+    const { authenticatedFetch, creds } = await getAuthenticatedFetch(deps.out);
     const fetchFn = authenticatedFetch as unknown as typeof fetch;
     const apiUrl = getApiUrl();
     const uploadUrl = getUploadUrl();
@@ -115,6 +115,7 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
         uid: creds.uid,
         uploadUrl,
         driveFolder: outputConfig.driveFolder,
+        out: deps.out,
       });
     }
 
@@ -235,7 +236,7 @@ export function createOperationCommand(flow: FlowSpec) {
     // FlagSet is heterogeneous (string / boolean / integer flags). Runtime
     // values are real oclif Flag objects — the cross-block collision test
     // in `03-definitions/02-flows/03-compose/01-flag-set/` asserts that.
-    static flags = composeFlagsForFlow(flow, getCatalog(), Models.list()) as never;
+    static flags = composeFlagsForFlow(flow, getCatalog(), ALL_MODELS) as never;
 
     override async init() {
       // Rewrite `--flag true|false` into oclif-native `--flag` / `--no-flag`

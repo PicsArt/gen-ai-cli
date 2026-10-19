@@ -79,12 +79,15 @@ function withEmptyHome(): {
 }
 
 /** A HOME whose access token is expired but whose refresh token still looks live. */
-function withExpiredCreds(): ReturnType<typeof withEmptyHome> {
+function withExpiredCreds(apiUrl: string): ReturnType<typeof withEmptyHome> {
   const env = withEmptyHome();
   fs.mkdirSync(join(env.HOME, '.gen-ai'), { recursive: true });
   fs.writeFileSync(
-    join(env.HOME, '.gen-ai', 'credentials.json'),
+    // The auth store is namespaced by API host; writing the legacy production
+    // filename here would bypass refresh entirely and report missing credentials.
+    join(env.HOME, '.gen-ai', `credentials.${new URL(apiUrl).host.replace(/[^A-Za-z0-9.-]/g, '_')}.json`),
     JSON.stringify({
+      apiUrl,
       token: 'expired-tok',
       refreshToken: 'rfr',
       uid: 'u1',
@@ -160,7 +163,7 @@ await test('auth failure with --json emits a parseable error on stdout', () => {
 
 await test('network-shaped refresh failure exits 4 (NETWORK_ERROR), not 3', () => {
   const { status, stdout } = runCli(['upload', tmpFile('a.png'), '--json'], {
-    ...withExpiredCreds(),
+    ...withExpiredCreds('https://unreachable.invalid'),
     // Unresolvable host — the refresh fetch fails at the transport layer, so
     // the CLI never learns whether the credentials are valid.
     GEN_AI_API_URL: 'https://unreachable.invalid',

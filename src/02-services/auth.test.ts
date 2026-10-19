@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError, ExitCode, NetworkError } from '#infra/errors/index.ts';
 import {
   type Credentials,
@@ -36,6 +36,14 @@ import {
   refreshAccessToken,
   whoami,
 } from './auth.ts';
+import { API_URL } from './constants.ts';
+
+// doRefresh() dynamically imports this module for device-sourced credentials;
+// mock it so routing is observable without hitting the network.
+const refreshDeviceTokenMock = vi.fn();
+vi.mock('#services/device-auth.ts', () => ({
+  refreshDeviceToken: (...a: unknown[]) => refreshDeviceTokenMock(...a),
+}));
 
 let tmpHome: string;
 let originalHome: string | undefined;
@@ -103,6 +111,57 @@ describe('loadCredentials', () => {
     expect(c).not.toBeNull();
     expect(c?.token).toBe('tok');
     expect(c?.uid).toBe('usr');
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  loadCredentials — environment binding                                 */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('loadCredentials — environment binding', () => {
+  let originalApi: string | undefined;
+
+  beforeEach(() => {
+    originalApi = process.env.GEN_AI_API_URL;
+    delete process.env.GEN_AI_API_URL;
+  });
+  afterEach(() => {
+    if (originalApi !== undefined) process.env.GEN_AI_API_URL = originalApi;
+    else delete process.env.GEN_AI_API_URL;
+  });
+
+  // The bug this guards: `gen-ai-stage` and `gen-ai` shared one credentials
+  // file, so a prod run would POST a stage refresh token to the prod auth
+  // server. The server answers 400 invalid_grant, the refresh is discarded,
+  // and the user is sent back through login — every time the token lapses.
+  it('rejects credentials issued by a different environment', () => {
+    writeCreds(validCreds({ apiUrl: 'https://api.example-stage.test' }));
+    expect(loadCredentials()).toBeNull();
+  });
+
+  it('accepts credentials issued by the current environment', () => {
+    writeCreds(validCreds({ apiUrl: 'https://api.picsart.com' }));
+    expect(loadCredentials()?.token).toBe('tok');
+  });
+
+  // Files written by older builds carry no apiUrl. Rejecting them would log
+  // every existing user out on upgrade, so they are trusted; the path is
+  // already namespaced, and a genuinely foreign token still surfaces as a 401.
+  it('accepts legacy credentials that predate the apiUrl stamp', () => {
+    writeCreds(validCreds());
+    expect(loadCredentials()?.token).toBe('tok');
+  });
+
+  // Only the host identifies an environment — scheme or trailing-slash drift
+  // in the stored value must not invalidate an otherwise good session.
+  it('compares on host alone, ignoring incidental URL differences', () => {
+    writeCreds(validCreds({ apiUrl: 'https://api.picsart.com/' }));
+    expect(loadCredentials()?.token).toBe('tok');
+  });
+
+  it('rejects credentials whose apiUrl is unparseable', () => {
+    writeCreds(validCreds({ apiUrl: 'not-a-url' }));
+    expect(loadCredentials()).toBeNull();
   });
 });
 
@@ -316,5 +375,72 @@ describe('getToken', () => {
       globalThis.fetch = originalFetch;
       if (origTty) Object.defineProperty(process.stdin, 'isTTY', origTty);
     }
+  });
+
+  // The rejection used to be discarded, so a refresh refused by the auth
+  // server reached the user as a bare "Not authenticated" — indistinguishable
+  // from never having logged in, and with no hint of which host refused.
+  it('names the rejecting host and the server reason in the AuthError', async () => {
+    writeCreds(validCreds({ expiresAt: new Date(Date.now() - 3600_000).toISOString() }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ status: 'error', message: 'invalid_grant' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch;
+    const origTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    try {
+      const err = await getToken().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect((err as AuthError).message).toContain('invalid_grant');
+      expect((err as AuthError).message).toContain(new URL(API_URL).host);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (origTty) Object.defineProperty(process.stdin, 'isTTY', origTty);
+    }
+  });
+
+  // A cross-environment file is the actual cause of the re-login loop; the
+  // message must point at it rather than at a generic auth failure.
+  it('explains an environment mismatch instead of reporting a refresh failure', async () => {
+    writeCreds(validCreds({ apiUrl: 'https://api.example-stage.test' }));
+    const origTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    try {
+      const err = await getToken().then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(AuthError);
+      expect((err as AuthError).message).toContain('api.example-stage.test');
+      expect((err as AuthError).message).toContain(new URL(API_URL).host);
+    } finally {
+      if (origTty) Object.defineProperty(process.stdin, 'isTTY', origTty);
+    }
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/*  doRefresh routing by authSource                                        */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+describe('doRefresh routing by authSource', () => {
+  it('loads a credentials file that has no authSource (back-compat)', () => {
+    writeCreds(validCreds()); // validCreds() sets no authSource
+    const loaded = loadCredentials();
+    expect(loaded).not.toBeNull();
+    expect(loaded?.authSource).toBeUndefined();
+  });
+
+  it('routes a device-tagged refresh to refreshDeviceToken', async () => {
+    refreshDeviceTokenMock.mockReset();
+    refreshDeviceTokenMock.mockResolvedValue(validCreds({ token: 'new', authSource: 'device' }));
+    writeCreds(validCreds({ authSource: 'device' }));
+    const updated = await refreshAccessToken();
+    expect(refreshDeviceTokenMock).toHaveBeenCalledTimes(1);
+    expect(updated.token).toBe('new');
   });
 });

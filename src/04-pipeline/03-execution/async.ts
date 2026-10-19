@@ -2,30 +2,21 @@
  * Async execution — submit, poll with progress, collect result.
  * No UI imports. Returns ExecutionResult.
  */
-import type {
-  GenerateResult,
-  GenerationContext,
-  ModelDefinition,
-  TypedModelId,
-  WorkflowJobHandle,
-} from '@picsart/ai-sdk';
+import type { GenerationContext, GenerationEvent, ModelDefinition, TypedModelId } from '@picsart/ai-sdk';
 import type { ExecutionResult, ProgressCallback } from '#root/types.ts';
 import { computePollingBudget } from './budget.ts';
 
-interface StatusUpdate {
-  status: string;
-  progress?: { percent?: number };
-  error?: string;
-}
-
 interface AsyncContext {
   ai: {
-    submit: (model: TypedModelId, ctx: GenerationContext) => Promise<WorkflowJobHandle>;
+    /** Submit a job and return its generation id (string handle). */
+    submit: (model: TypedModelId, ctx: GenerationContext, opts?: { signal?: AbortSignal }) => Promise<string>;
+    /** Subscribe to live events for a submitted job. The `generation.completed`
+     *  event carries the parsed result, so no follow-up `result()` call is needed. */
     subscribe: (
-      handle: WorkflowJobHandle,
-      opts?: { intervalMs?: number; maxAttempts?: number },
-    ) => AsyncGenerator<StatusUpdate, StatusUpdate, void>;
-    result: (handle: WorkflowJobHandle, model: TypedModelId) => Promise<GenerateResult>;
+      model: TypedModelId,
+      generationId: string,
+      opts?: { intervalMs?: number; maxAttempts?: number; signal?: AbortSignal },
+    ) => AsyncGenerator<GenerationEvent, void, void>;
   };
   model: ModelDefinition;
   params: GenerationContext;
@@ -35,9 +26,12 @@ interface AsyncContext {
   pollTimeoutMs?: number;
 }
 
-/** Detect the SDK's polling-timeout sentinel (workflow.ts throws a raw Error). */
-function isSdkPollingTimeout(err: unknown): err is Error {
-  return err instanceof Error && err.message.startsWith('Timed out waiting for workflow');
+/** SDK 6 reports timeout ApiErrors as failed events; retain thrown-error support. */
+function isSdkPollingTimeout(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (('code' in err && err.code === 'timeout') || err.message.startsWith('Timed out waiting for workflow'))
+  );
 }
 
 export async function executeAsyncModel(ctx: AsyncContext): Promise<ExecutionResult> {
@@ -45,36 +39,63 @@ export async function executeAsyncModel(ctx: AsyncContext): Promise<ExecutionRes
   const intervalMs = ctx.pollIntervalMs ?? 3000;
   const { maxAttempts, totalMs } = computePollingBudget(ctx.model, intervalMs, ctx.pollTimeoutMs);
 
-  const handle = await ctx.ai.submit(ctx.model.id as TypedModelId, ctx.params);
-  const subscription = ctx.ai.subscribe(handle, { intervalMs, maxAttempts });
+  const cancelled = (taskId?: string): ExecutionResult => ({
+    status: 'cancelled',
+    results: [],
+    model: ctx.model,
+    params: ctx.params as unknown as Record<string, unknown>,
+    durationMs: Date.now() - startTime,
+    ...(taskId ? { taskId } : {}),
+  });
+  const timeout = (taskId: string): ExecutionResult => ({
+    status: 'timeout',
+    results: [],
+    model: ctx.model,
+    params: ctx.params as unknown as Record<string, unknown>,
+    durationMs: Date.now() - startTime,
+    taskId,
+    error: `Job is still running on the server after ${Math.round(totalMs / 60_000)} min. Track it with \`gen-ai history\` before submitting another generation.`,
+  });
+
+  if (ctx.signal?.aborted) return cancelled();
+  let generationId: string;
+  try {
+    generationId = await ctx.ai.submit(ctx.model.id as TypedModelId, ctx.params, { signal: ctx.signal });
+  } catch (err) {
+    if (ctx.signal?.aborted) return cancelled();
+    throw err;
+  }
+  if (ctx.signal?.aborted) return cancelled(generationId);
+  const subscription = ctx.ai.subscribe(ctx.model.id as TypedModelId, generationId, {
+    intervalMs,
+    maxAttempts,
+    signal: ctx.signal,
+  });
 
   try {
-    for await (const status of subscription) {
+    for await (const event of subscription) {
       if (ctx.signal?.aborted) {
-        await subscription.return(status);
-        return {
-          status: 'cancelled',
-          results: [],
-          model: ctx.model,
-          params: ctx.params as unknown as Record<string, unknown>,
-          durationMs: Date.now() - startTime,
-          taskId: handle.id,
-        };
+        await subscription.return(undefined);
+        return cancelled(generationId);
       }
 
       const elapsed = Date.now() - startTime;
-      ctx.onProgress?.({
-        percent: status.progress?.percent ?? undefined,
-        status: status.status,
-        elapsed,
-      });
 
-      if (status.status === 'COMPLETED') {
-        const result = await ctx.ai.result(handle, ctx.model.id as TypedModelId);
+      if (event.type === 'generation.progress') {
+        ctx.onProgress?.({
+          percent: event.progress?.percent ?? undefined,
+          status: 'processing',
+          elapsed,
+        });
+        continue;
+      }
+
+      if (event.type === 'generation.completed') {
+        const result = event.result;
         return {
           status: 'completed',
           url: result.url,
-          results: result.results.map((r) => ({
+          results: result.items.map((r) => ({
             url: r.url,
             type: ctx.model.mode,
             // Preserve server-side IDs from multi-result models (Recraft
@@ -87,36 +108,28 @@ export async function executeAsyncModel(ctx: AsyncContext): Promise<ExecutionRes
           model: ctx.model,
           params: ctx.params as unknown as Record<string, unknown>,
           durationMs: Date.now() - startTime,
-          taskId: handle.id,
+          taskId: generationId,
         };
       }
 
-      if (status.status === 'FAILED') {
+      if (event.type === 'generation.failed') {
+        if (isSdkPollingTimeout(event.error)) return timeout(generationId);
+        if (event.error.code === 'aborted' || event.error.code === 'canceled') return cancelled(generationId);
         return {
           status: 'failed',
           results: [],
           model: ctx.model,
           params: ctx.params as unknown as Record<string, unknown>,
           durationMs: Date.now() - startTime,
-          taskId: handle.id,
-          error: status.error ?? 'Generation failed',
+          taskId: generationId,
+          error: event.error.message || 'Generation failed',
         };
       }
     }
   } catch (err) {
-    await subscription.return(undefined as unknown as StatusUpdate);
-    if (isSdkPollingTimeout(err)) {
-      const minutes = Math.round(totalMs / 60_000);
-      return {
-        status: 'timeout',
-        results: [],
-        model: ctx.model,
-        params: ctx.params as unknown as Record<string, unknown>,
-        durationMs: Date.now() - startTime,
-        taskId: handle.id,
-        error: `Job is still running on the server after ${minutes} min. Track it with \`gen-ai history\` or rerun later.`,
-      };
-    }
+    await subscription.return(undefined);
+    if (ctx.signal?.aborted) return cancelled(generationId);
+    if (isSdkPollingTimeout(err)) return timeout(generationId);
     throw err;
   }
 
@@ -127,7 +140,7 @@ export async function executeAsyncModel(ctx: AsyncContext): Promise<ExecutionRes
     model: ctx.model,
     params: ctx.params as unknown as Record<string, unknown>,
     durationMs: Date.now() - startTime,
-    taskId: handle.id,
+    taskId: generationId,
     error: 'Job ended without terminal status',
   };
 }

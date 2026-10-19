@@ -3,9 +3,10 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { GenerationContext, MediaModelId } from '@picsart/ai-sdk';
+import type { GenerationContext, MediaModelId, TextModelId } from '@picsart/ai-sdk';
 import { createClient, findModel } from '@picsart/ai-sdk';
-import { getOutput } from '#infra/ui-core/output.ts';
+import { modelAvailable } from '#flows';
+import type { OutputManager } from '#infra/ui-core/output.ts';
 import { runPool } from '#infra/utils/pool.ts';
 import { resolveGenerationInputs } from '#pipeline/02-resolve/media.ts';
 import { getAuthenticatedFetch } from '#services/client.ts';
@@ -28,6 +29,7 @@ export interface JobResult {
   model: string;
   status: 'completed' | 'failed' | 'skipped';
   url?: string;
+  text?: string;
   localPath?: string;
   error?: string;
   durationMs?: number;
@@ -78,8 +80,12 @@ export function printSummary(results: BatchResults, label = 'Batch complete'): v
   process.stdout.write(`${label}: ${completed} succeeded, ${failed} failed (of ${results.jobs.length} total)\n`);
 }
 
-export async function downloadResults(results: BatchResults, outputDir: string, concurrency: number): Promise<number> {
-  const out = getOutput();
+export async function downloadResults(
+  results: BatchResults,
+  outputDir: string,
+  concurrency: number,
+  out: OutputManager,
+): Promise<number> {
   const toDownload = results.jobs.filter((j) => j.status === 'completed' && j.url && !j.localPath);
   if (toDownload.length === 0) return 0;
 
@@ -111,14 +117,14 @@ export async function saveAndDownload(
   results: BatchResults,
   outputDir: string,
   flags: { noDownload: boolean; downloadConcurrency: number },
+  out: OutputManager,
 ): Promise<void> {
-  const out = getOutput();
   fs.mkdirSync(outputDir, { recursive: true });
   const resultsPath = path.join(outputDir, 'results.json');
   fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
 
   if (!flags.noDownload) {
-    const dlCount = await downloadResults(results, outputDir, flags.downloadConcurrency);
+    const dlCount = await downloadResults(results, outputDir, flags.downloadConcurrency, out);
     if (dlCount > 0) {
       fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
       out.info(`Downloaded ${dlCount} result(s) to ${outputDir}`);
@@ -129,8 +135,8 @@ export async function saveAndDownload(
 export async function runBatch(
   manifest: BatchManifest,
   opts: { concurrency: number; output: string },
+  out: OutputManager,
 ): Promise<BatchResults> {
-  const out = getOutput();
   const results: BatchResults = { jobs: [], startedAt: new Date().toISOString() };
   const { authenticatedFetch, creds } = await getAuthenticatedFetch();
   const apiUrl = getApiUrl();
@@ -142,6 +148,16 @@ export async function runBatch(
     const model = findModel(job.model);
     if (!model) {
       results.jobs.push({ id: job.id, model: job.model, status: 'failed', error: `Model not found: ${job.model}` });
+      return;
+    }
+
+    if (!modelAvailable(model)) {
+      results.jobs.push({
+        id: job.id,
+        model: job.model,
+        status: 'failed',
+        error: `Model unavailable for generation: ${job.model}`,
+      });
       return;
     }
 
@@ -157,7 +173,12 @@ export async function runBatch(
       await resolveGenerationInputs(ctx, uploadOpts);
       out.info(`[${job.id}] Starting ${model.name}...`);
 
-      if (model.syncExecute) {
+      if (model.mode === 'text') {
+        const result = await ai.generateText(model.id as TextModelId, ctx as GenerationContext & { prompt: string });
+        const durationMs = Date.now() - start;
+        results.jobs.push({ id: job.id, model: job.model, status: 'completed', text: result.text, durationMs });
+        out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);
+      } else if (model.syncExecute) {
         // Sync models — use ai.generate() directly (fast, no progress needed)
         const result = await ai.generate(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
         const durationMs = Date.now() - start;
@@ -165,38 +186,36 @@ export async function runBatch(
         out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);
       } else {
         // Async models — submit + subscribe for progress
-        const handle = await ai.submit(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
-        for await (const status of ai.subscribe(handle, { intervalMs: 3000 })) {
+        const generationId = await ai.submit(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
+        for await (const event of ai.subscribe(model.id as MediaModelId, generationId, { intervalMs: 3000 })) {
           const elapsed = ((Date.now() - start) / 1000).toFixed(0);
-          if (status.progress?.percent != null) {
-            out.info(`[${job.id}] ${status.progress.percent}% (${elapsed}s)`);
-          } else if (status.status !== 'COMPLETED' && status.status !== 'FAILED') {
-            out.info(`[${job.id}] ${status.status} (${elapsed}s)`);
-          }
-
-          if (status.status === 'COMPLETED') {
-            const result = await ai.result(handle, model.id as MediaModelId);
+          if (event.type === 'generation.progress') {
+            if (event.progress?.percent != null) {
+              out.info(`[${job.id}] ${event.progress.percent}% (${elapsed}s)`);
+            } else {
+              out.info(`[${job.id}] processing (${elapsed}s)`);
+            }
+          } else if (event.type === 'generation.completed') {
             const durationMs = Date.now() - start;
-            results.jobs.push({ id: job.id, model: job.model, status: 'completed', url: result.url, durationMs });
+            results.jobs.push({
+              id: job.id,
+              model: job.model,
+              status: 'completed',
+              url: event.result.url,
+              durationMs,
+            });
             out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);
             break;
-          }
-          if (status.status === 'FAILED') {
-            const durationMs = Date.now() - start;
-            results.jobs.push({ id: job.id, model: job.model, status: 'failed', error: status.error, durationMs });
-            out.error(`[${job.id}] Failed: ${status.error}`);
-            break;
-          }
-          if (status.status === 'CANCELED') {
+          } else if (event.type === 'generation.failed') {
             const durationMs = Date.now() - start;
             results.jobs.push({
               id: job.id,
               model: job.model,
               status: 'failed',
-              error: 'Job was canceled',
+              error: event.error.message,
               durationMs,
             });
-            out.error(`[${job.id}] Canceled`);
+            out.error(`[${job.id}] Failed: ${event.error.message}`);
             break;
           }
         }
@@ -240,6 +259,7 @@ export async function runBatch(
 export async function runBatchWithAuth(
   manifest: BatchManifest,
   opts: { concurrency: number; output: string },
+  out: OutputManager,
 ): Promise<BatchResults> {
-  return runBatch(manifest, opts);
+  return runBatch(manifest, opts, out);
 }

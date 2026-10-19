@@ -4,7 +4,7 @@
  * Pure function over a Catalog. Tests build small fixture catalogs
  * via loadCatalog() so we exercise the same plumbing the runtime uses.
  */
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { MODEL_BOOLEAN, MODEL_ENUM_STRING, MODEL_RANGE, MODEL_TEXT } from '../__test-utils__/models-min.ts';
 import { ALIAS_MAP } from '../01-primitives/01-aliases/index.ts';
@@ -157,7 +157,7 @@ describe('file-wiring — against the real SDK catalog and real pipeline sources
     // descriptor and nobody wired it": Param Surface would still emit the
     // flag, but the value would silently never reach the payload. Runs in
     // `npm test`, not only via the `gen-ai dev:params` CI gate.
-    const catalog = loadCatalog(Models.list(), ALIAS_MAP);
+    const catalog = loadCatalog(ALL_MODELS, ALIAS_MAP);
     const gaps = findFileWiringGaps(catalog, readResolverSources());
     const detail = gaps.map((g) => `${g.sdkKey} → ${g.unmappedKey ? 'NO MAPPING' : `files.${g.filesKey}`}`).join('; ');
     expect(gaps, `Unwired file slots: ${detail}`).toEqual([]);

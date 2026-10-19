@@ -90,11 +90,11 @@ export default class Compare extends BaseCommand {
       this.out.info(`Comparing ${models.length} models on: "${truncate(flags.prompt, 60)}"`);
     }
 
-    const results = await runBatchWithAuth(manifest, { concurrency: flags.concurrency, output: '' });
+    const results = await runBatchWithAuth(manifest, { concurrency: flags.concurrency, output: '' }, this.out);
 
     // Optional: persist each result locally (sets job.localPath, named by model id).
     if (flags.download) {
-      await downloadResults(results, flags.download, flags.concurrency);
+      await downloadResults(results, flags.download, flags.concurrency, this.out);
     }
 
     if (this.isJsonMode) {

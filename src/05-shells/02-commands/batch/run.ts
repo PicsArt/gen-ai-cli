@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Args, Flags } from '@oclif/core';
 import { findModel } from '@picsart/ai-sdk';
+import { modelAvailable } from '#flows';
 import { FileError } from '#infra/errors/file.ts';
 import { UsageError } from '#infra/errors/usage.ts';
 import { BaseCommand } from '#root/base-command.ts';
@@ -113,6 +114,11 @@ export default class BatchRun extends BaseCommand {
       throw new UsageError(`Unknown models: ${invalid.map((j) => `${j.id}:${j.model}`).join(', ')}`);
     }
 
+    const unavailable = manifest.jobs.filter((job) => !modelAvailable(findModel(job.model)!));
+    if (unavailable.length > 0) {
+      throw new UsageError(`Unavailable models: ${unavailable.map((job) => `${job.id}:${job.model}`).join(', ')}`);
+    }
+
     if (flags['dry-run']) {
       this.out.success(`Manifest valid: ${manifest.jobs.length} jobs`);
       for (const j of manifest.jobs) {
@@ -121,17 +127,26 @@ export default class BatchRun extends BaseCommand {
       return;
     }
 
-    const results = await runBatchWithAuth(manifest, {
-      concurrency: flags.concurrency,
-      output: flags.output,
-    });
+    const results = await runBatchWithAuth(
+      manifest,
+      {
+        concurrency: flags.concurrency,
+        output: flags.output,
+      },
+      this.out,
+    );
 
     results.manifestPath = path.resolve(args.file);
     printSummary(results);
 
-    await saveAndDownload(results, flags.output, {
-      noDownload: flags['no-download'],
-      downloadConcurrency: flags['download-concurrency'],
-    });
+    await saveAndDownload(
+      results,
+      flags.output,
+      {
+        noDownload: flags['no-download'],
+        downloadConcurrency: flags['download-concurrency'],
+      },
+      this.out,
+    );
   }
 }

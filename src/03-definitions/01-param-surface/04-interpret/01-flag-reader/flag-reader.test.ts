@@ -408,19 +408,10 @@ describe('collectGenerationContext — real-SDK kind-conflict regressions', () =
     expect(ctx.videoId).toBe('vid_abc');
   });
 
-  it('picsart-qwen-image-edit-angle loraWeights is a bare object, not a one-item array', async () => {
-    const { getCatalog } = await import('../../02-catalog/index.ts');
-    const { findModel } = await import('@picsart/ai-sdk');
-    const model = findModel('picsart-qwen-image-edit-angle');
-    expect(model, 'picsart-qwen-image-edit-angle missing from SDK — update this regression').toBeTruthy();
-    const ctx = collectGenerationContext(
-      { 'lora-weights-lora-angle': '0.5' },
-      getCatalog(),
-      'picsart-qwen-image-edit-angle',
-    ) as Record<string, unknown>;
-    expect(Array.isArray(ctx.loraWeights)).toBe(false);
-    expect(ctx.loraWeights).toMatchObject({ lora_angle: 0.5 });
-  });
+  // NOTE: the `picsart-qwen-image-edit-angle` loraWeights regression was
+  // removed in the @picsart/ai-sdk 6.x migration — that model and every
+  // `lora*` object-descriptor param were dropped from the catalog, so the
+  // kind-conflict scenario it guarded no longer exists to test.
 
   it('kling-v3 multiPrompt indices stay inside the declared 0..5 range for six shots', async () => {
     const { getCatalog } = await import('../../02-catalog/index.ts');

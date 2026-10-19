@@ -13,7 +13,8 @@
  *   text          → Flags.string()
  *   catalog       → Flags.string()  (free-string id; live catalog validates)
  *   file          → skipped (file pipeline owns file inputs)
- *   object        → delegated to `./objects.ts` (per-subfield flags)
+ *   object        → delegated to `./objects.ts` (structured flags or JSON)
+ *   unknown       → Flags.string() (JSON value)
  *
  * Aliases applied from ParamSurface (resolved by the catalog):
  *   - `char`        → single-letter short
@@ -42,6 +43,10 @@ export function generateFlagsFromCatalog(catalog: Catalog): FlagSet {
 function flagsFor(surface: ParamSurface): FlagSet {
   const desc = surface.descriptor;
   switch (desc.kind) {
+    case 'unknown':
+      return {
+        [surface.flag]: Flags.string({ description: `${describeFlag(surface)} — JSON value`, ...aliasOpts(surface) }),
+      };
     case 'enum':
       return { [surface.flag]: makeEnumFlag(surface, desc) };
     case 'boolean':

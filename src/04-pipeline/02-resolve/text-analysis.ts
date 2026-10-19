@@ -15,7 +15,7 @@
  *      video (the flat `requiredInputs` can't express "one of").
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { Models } from '@picsart/ai-sdk';
+import { ALL_MODELS, Model } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import type { ResolvedInputs } from '#root/types.ts';
@@ -23,7 +23,7 @@ import type { ResolvedInputs } from '#root/types.ts';
 const DEFAULT_ANALYSIS_PROMPT = 'Describe this image or video in detail.';
 
 function modelAcceptsVideo(model: ModelDefinition): boolean {
-  return Boolean(Models.getFileParam(model.id, 'videoUrl'));
+  return Boolean(Model(model.id).params().file('videoUrl'));
 }
 
 /**
@@ -60,7 +60,7 @@ export function finalizeTextAnalysisInputs(
     if (userPickedModel) {
       throw new UsageError(`Model "${model.name}" can't take video. Use a video-capable model such as gemini-3-pro.`);
     }
-    const videoModel = Models.list().find((m) => flow.modelFilter(m) && modelAcceptsVideo(m));
+    const videoModel = ALL_MODELS.find((m) => flow.modelFilter(m) && modelAcceptsVideo(m));
     if (!videoModel) {
       throw new UsageError('No video-capable model is available for this flow.');
     }

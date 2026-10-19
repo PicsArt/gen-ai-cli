@@ -30,6 +30,7 @@ export interface HistoryEntry {
   startFrame?: string;
   endFrame?: string;
   staticMask?: string;
+  mask?: string;
   sceneImage?: string;
   styleImage?: string;
   resultUrl?: string;
@@ -139,6 +140,7 @@ export function appendHistory(entry: HistoryEntry): void {
     startFrame: sanitizeUrl(entry.startFrame),
     endFrame: sanitizeUrl(entry.endFrame),
     staticMask: sanitizeUrl(entry.staticMask),
+    mask: sanitizeUrl(entry.mask),
     sceneImage: sanitizeUrl(entry.sceneImage),
     styleImage: sanitizeUrl(entry.styleImage),
     resultUrls: entry.resultUrls?.map(sanitizeUrl).filter(Boolean) as string[] | undefined,

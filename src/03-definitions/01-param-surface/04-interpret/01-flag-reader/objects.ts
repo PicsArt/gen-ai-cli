@@ -22,12 +22,21 @@
  */
 import type { ObjectDescriptor, ParamDescriptor } from '@picsart/ai-sdk';
 import { UsageError } from '#infra/errors/usage.ts';
-import { autoNumberIndexField, coerceToDescriptor, subfieldFlagName } from '../../01-primitives/02-coercion/index.ts';
+import {
+  autoNumberIndexField,
+  coerceJsonObject,
+  coerceToDescriptor,
+  parseJsonInput,
+  subfieldFlagName,
+  usesJsonObject,
+} from '../../01-primitives/02-coercion/index.ts';
 import type { ParamSurface } from '../../02-catalog/index.ts';
 
 export function interpretObjectArray(flags: Record<string, unknown>, surface: ParamSurface): unknown {
   const desc = assertObject(surface);
-  const fieldKeys = Object.keys(desc.fields);
+  if (usesJsonObject(desc))
+    return coerceJsonObject(parseJsonInput(singleFlagValue(flags[surface.flag], surface.flag)), desc);
+  const fieldKeys = Object.keys(desc.fields ?? {});
 
   if (desc.array === undefined) {
     return interpretSingleObject(flags, surface, desc, fieldKeys);
@@ -52,14 +61,17 @@ function interpretSingleObject(
   // Single-field non-array objects live under the parent flag itself,
   // mirroring the describe-half's naming for the array case.
   const readFlag = (subKey: string): unknown =>
-    fieldKeys.length === 1 ? flags[surface.flag] : flags[subfieldFlagName(surface.flag, subKey)];
+    singleFlagValue(
+      fieldKeys.length === 1 ? flags[surface.flag] : flags[subfieldFlagName(surface.flag, subKey)],
+      fieldKeys.length === 1 ? surface.flag : subfieldFlagName(surface.flag, subKey),
+    );
 
   const anyProvided = fieldKeys.some((subKey) => readFlag(subKey) !== undefined);
   if (!anyProvided) return undefined;
 
   const item: Record<string, unknown> = {};
   for (const subKey of fieldKeys) {
-    const subDesc = desc.fields[subKey];
+    const subDesc = desc.fields![subKey];
     const provided = readFlag(subKey);
     item[subKey] = resolveSubfieldValue(surface.flag, subKey, subDesc, provided, 0);
   }
@@ -77,8 +89,8 @@ function interpretSingleField(
 
   enforceMax(`--${surface.flag}`, desc.array?.max, raw.length);
 
-  const subDesc = desc.fields[subKey];
-  return raw.map((v) => ({ [subKey]: coerceToDescriptor(v, subDesc) }));
+  const subDesc = desc.fields![subKey];
+  return raw.map((v) => ({ [subKey]: coerceSubfield(v, subDesc) }));
 }
 
 function interpretMultiField(
@@ -104,7 +116,7 @@ function interpretMultiField(
   for (let i = 0; i < itemCount; i++) {
     const item: Record<string, unknown> = {};
     for (const subKey of fieldKeys) {
-      const subDesc = desc.fields[subKey];
+      const subDesc = desc.fields![subKey];
       const arr = subArrays.get(subKey);
       const provided = arr && i < arr.length ? arr[i] : undefined;
       item[subKey] = resolveSubfieldValue(surface.flag, subKey, subDesc, provided, i);
@@ -116,8 +128,8 @@ function interpretMultiField(
   // flag at all. Numbering starts at the descriptor's declared minimum so it
   // can never overflow the range (Kling multiPrompt: 0..5 for 6 items). An
   // explicit `--*-index` — even all zeros — is the caller's intent: keep it.
-  if ('index' in desc.fields && !subArrays.has('index')) {
-    const idxDesc = desc.fields.index;
+  if ('index' in (desc.fields ?? {}) && !subArrays.has('index')) {
+    const idxDesc = desc.fields!.index;
     const start = idxDesc.kind === 'range' ? idxDesc.min : 1;
     return autoNumberIndexField(items, start);
   }
@@ -131,10 +143,12 @@ function resolveSubfieldValue(
   provided: unknown,
   index: number,
 ): unknown {
-  if (provided !== undefined) return coerceToDescriptor(provided, desc);
+  if (provided !== undefined) return coerceSubfield(provided, desc);
 
   const def = descriptorDefault(desc);
   if (def !== undefined) return def;
+
+  if ('required' in desc && desc.required === false) return undefined;
 
   throw new UsageError(
     `--${subfieldFlagName(parentFlag, subKey)}[${index}]: missing required value (subfield has no default)`,
@@ -168,4 +182,16 @@ function enforceMax(flagLabel: string, max: number | undefined, count: number): 
   if (max !== undefined && count > max) {
     throw new UsageError(`${flagLabel} accepts at most ${max} items, got ${count}.`);
   }
+}
+
+function coerceSubfield(raw: unknown, desc: ParamDescriptor): unknown {
+  if (desc.kind === 'object') return coerceJsonObject(parseJsonInput(raw), desc);
+  return coerceToDescriptor(desc.kind === 'unknown' ? parseJsonInput(raw) : raw, desc);
+}
+
+/** Universal flag declarations may be repeatable for a different model. */
+function singleFlagValue(raw: unknown, flag: string): unknown {
+  if (!Array.isArray(raw)) return raw;
+  if (raw.length > 1) throw new UsageError(`--${flag} accepts one value for this model.`);
+  return raw[0];
 }

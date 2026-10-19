@@ -35,6 +35,43 @@ export function getOAuthAuthUrl(): string {
   return `${url.protocol}//${siteHost}/sso`;
 }
 
+/* ── Device Authorization Grant (pa-authorization-server) ────── */
+
+export const DEVICE_CLIENT_ID_PROD = 'auth-service-Gen-AI-CLI';
+export const DEVICE_CLIENT_ID_STAGE = 'auth-service-gen-ai-cli';
+
+/**
+ * Base URL of pa-authorization-server, derived from the API host by swapping
+ * the leading `api` label for `auth` and appending `/api`:
+ *   api.picsart.com             → https://auth.picsart.com/api
+ *   api-<env>.<domain>          → https://auth-<env>.<domain>/api
+ * This is a DIFFERENT auth system from the mini-apps token URLs above, with
+ * its own client registry. Override with GEN_AI_DEVICE_AUTH_URL.
+ */
+export function getDeviceAuthUrl(): string {
+  const override = process.env.GEN_AI_DEVICE_AUTH_URL;
+  if (override) return validateUrl(override, 'GEN_AI_DEVICE_AUTH_URL');
+  const url = new URL(getApiUrl());
+  const labels = url.hostname.split('.');
+  labels[0] = labels[0].replace(/^api/, 'auth');
+  const host = url.port ? `${labels.join('.')}:${url.port}` : labels.join('.');
+  return validateUrl(`${url.protocol}//${host}/api`, 'device auth URL');
+}
+
+/**
+ * Device client_id for the target environment — the registration NAME, not the
+ * UUID the admin UI shows (the UUIDs return `invalid_client`). Stage/dev hosts
+ * use the lowercase stage client; everything else uses the prod client. The
+ * two names differ in case and must be sent verbatim. Override with
+ * GEN_AI_DEVICE_CLIENT_ID.
+ */
+export function getDeviceClientId(): string {
+  const override = process.env.GEN_AI_DEVICE_CLIENT_ID;
+  if (override) return override;
+  const host = new URL(getDeviceAuthUrl()).hostname;
+  return /-stage|-dev/.test(host) ? DEVICE_CLIENT_ID_STAGE : DEVICE_CLIENT_ID_PROD;
+}
+
 export function getTokenExchangeUrl(): string {
   return `${getApiUrl()}/mini-apps-portal/authz/oauth2/code/exchange`;
 }
@@ -69,8 +106,25 @@ export function getUploadUrl(): string {
   return validateUrl(process.env.GEN_AI_UPLOAD_URL ?? UPLOAD_URL, 'GEN_AI_UPLOAD_URL');
 }
 
+/**
+ * Credentials file for the environment the CLI is currently pointed at.
+ *
+ * Stage and production issue tokens from different auth servers, and
+ * getTokenRefreshUrl() derives its host from GEN_AI_API_URL at call time. A
+ * single shared file therefore lets one environment's refresh token be POSTed
+ * to the other's auth server, which answers 400 invalid_grant and drops the
+ * user back into login. Namespacing by host keeps both sessions alive.
+ *
+ * Production deliberately keeps the legacy unsuffixed filename so upgrading
+ * the CLI does not orphan every existing user's credentials.
+ */
 export function getCredentialsPath(): string {
-  return `${getDataDir()}/credentials.json`;
+  const host = new URL(getApiUrl()).host;
+  if (host === new URL(API_URL).host) return path.join(getDataDir(), 'credentials.json');
+  // `host` carries a colon for non-default ports (localhost:3000) — keep the
+  // name a single, portable path segment.
+  const safeHost = host.replace(/[^A-Za-z0-9.-]/g, '_');
+  return path.join(getDataDir(), `credentials.${safeHost}.json`);
 }
 
 /** Build standard auth/API headers for Picsart API requests. */

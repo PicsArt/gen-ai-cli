@@ -90,7 +90,7 @@ export async function resolveInputs(
 
   // Upload local files → URLs before handing off to execution.
   if (hasAnyFile(inputs.files)) {
-    const { creds } = await getAuthenticatedFetch();
+    const { creds } = await getAuthenticatedFetch(deps.out);
     inputs.files = await resolveAllFiles(inputs.files, { token: creds.token, uid: creds.uid });
   }
 
@@ -224,6 +224,7 @@ function hasAnyFile(files: ResolvedInputs['files']): boolean {
       files.videos?.length ||
       files.audios?.length ||
       files.staticMask ||
+      files.mask ||
       files.sceneImage ||
       files.styleImage ||
       files.styleReferences?.length,

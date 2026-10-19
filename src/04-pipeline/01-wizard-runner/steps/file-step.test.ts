@@ -51,6 +51,7 @@ describe('runFileStep — flag mapping', () => {
       'video-urls': ['/r1.mp4', '/r2.mp4'],
       'audio-urls': ['/r1.mp3'],
       'static-mask': '/mask.png',
+      mask: '/edit-mask.png',
       'scene-image': '/scene.png',
       'style-image': '/style.png',
     });
@@ -61,6 +62,7 @@ describe('runFileStep — flag mapping', () => {
     expect(out.videos).toEqual(['/r1.mp4', '/r2.mp4']);
     expect(out.audios).toEqual(['/r1.mp3']);
     expect(out.staticMask).toBe('/mask.png');
+    expect(out.mask).toBe('/edit-mask.png');
     expect(out.sceneImage).toBe('/scene.png');
     expect(out.styleImage).toBe('/style.png');
   });

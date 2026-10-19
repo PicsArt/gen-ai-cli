@@ -22,7 +22,7 @@
  */
 import { Flags } from '@oclif/core';
 import type { ObjectDescriptor } from '@picsart/ai-sdk';
-import { humanizeKey, subfieldFlagName } from '../../01-primitives/02-coercion/index.ts';
+import { humanizeKey, subfieldFlagName, usesJsonObject } from '../../01-primitives/02-coercion/index.ts';
 import type { ParamSurface } from '../../02-catalog/index.ts';
 import { aliasOpts, describeFlag } from './description.ts';
 
@@ -32,8 +32,34 @@ import { aliasOpts, describeFlag } from './description.ts';
 export type ObjectFlagSet = Record<string, unknown>;
 
 export function describeObjectFlags(surface: ParamSurface): ObjectFlagSet {
-  const desc = assertObject(surface);
-  const fieldKeys = Object.keys(desc.fields);
+  const primary = assertObject(surface);
+  // The merged descriptor is first-wins for object kinds. Declare every
+  // model's shape independently so extra fields remain reachable without
+  // changing single-field shortcuts or requiring another model's fields.
+  const descriptors = [primary, ...surface.descriptorsByModel.values()];
+  const out: ObjectFlagSet = {};
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== 'object') continue;
+    for (const [name, flag] of Object.entries(flagsForObject(surface, descriptor))) {
+      // A shared flag must accept repeated values if any model needs them.
+      // The reader still enforces the selected model's actual object shape.
+      if ((out[name] as { multiple?: boolean } | undefined)?.multiple) continue;
+      out[name] = flag;
+    }
+  }
+  return out;
+}
+
+function flagsForObject(surface: ParamSurface, desc: ObjectDescriptor): ObjectFlagSet {
+  if (usesJsonObject(desc)) {
+    return {
+      [surface.flag]: Flags.string({
+        description: `${describeFlag(surface)} — JSON ${desc.array ? 'array of objects' : 'object'}`,
+        ...aliasOpts(surface),
+      }),
+    };
+  }
+  const fieldKeys = Object.keys(desc.fields ?? {});
 
   if (fieldKeys.length === 0) {
     throw new Error(`describeObjectFlags: object descriptor '${surface.key}' has no fields`);
