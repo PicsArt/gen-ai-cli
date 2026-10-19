@@ -7,7 +7,7 @@
  * Rules:
  *
  *   1. Video ⇒ video-capable model (ALL text flows) — only some text models
- *      declare a `videoUrl` param (today just `gemini-3-pro`). If a video was
+ *      declare a `videoUrl` param (e.g. `gemini-3-pro`, `gemini-4-argon`). If a video was
  *      given to a model that can't take it: error when the user forced it with
  *      `-m`, otherwise auto-switch to a video-capable model in the same flow.
  *   2. Media-analysis flows only (`flow.requiresMedia`): default the prompt to

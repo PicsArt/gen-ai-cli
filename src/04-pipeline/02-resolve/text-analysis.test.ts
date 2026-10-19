@@ -11,7 +11,7 @@
  * Uses the real SDK catalog: claude-sonnet-4-6 (no videoUrl) and
  * gemini-3-pro (videoUrl) are the fixtures.
  */
-import { getModel } from '@picsart/ai-sdk';
+import { getModel, Model } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { FLOWS } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
@@ -24,6 +24,12 @@ function inputs(modelId: string, files: ResolvedInputs['files'], prompt?: string
   const model = getModel(modelId);
   if (!model) throw new Error(`fixture model missing: ${modelId}`);
   return { model, params: prompt === undefined ? {} : { prompt }, files };
+}
+
+// The auto-switch target is the first video-capable model in SDK order, which
+// shifts as the SDK adds models — assert the capability, not a specific id.
+function acceptsVideo(modelId: string): boolean {
+  return Boolean(Model(modelId).params().file('videoUrl'));
 }
 
 describe('finalizeTextAnalysisInputs — prompt default', () => {
@@ -62,7 +68,8 @@ describe('finalizeTextAnalysisInputs — video routing', () => {
   it('auto-switches a defaulted non-video model to a video-capable one', () => {
     // no flags.model → defaulted
     const out = finalizeTextAnalysisInputs(inputs('claude-sonnet-4-6', { video: 'https://x/clip.mp4' }), {}, flow);
-    expect(out.model.id).toBe('gemini-3-pro');
+    expect(out.model.id).not.toBe('claude-sonnet-4-6');
+    expect(acceptsVideo(out.model.id)).toBe(true);
   });
 
   it('throws when the user explicitly forced a non-video model with a video', () => {
@@ -87,6 +94,7 @@ describe('finalizeTextAnalysisInputs — general ask flow (media optional)', () 
 
   it('still routes video to a video-capable model', () => {
     const out = finalizeTextAnalysisInputs(inputs('claude-sonnet-4-6', { video: 'https://x/clip.mp4' }), {}, ask);
-    expect(out.model.id).toBe('gemini-3-pro');
+    expect(out.model.id).not.toBe('claude-sonnet-4-6');
+    expect(acceptsVideo(out.model.id)).toBe(true);
   });
 });
