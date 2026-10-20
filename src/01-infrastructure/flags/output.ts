@@ -9,8 +9,8 @@ export const outputFlags = {
     description: 'Download result to directory (default: ./output)',
   }),
   'save-to-drive': Flags.boolean({
-    description: 'Save result to Picsart Drive (default: true)',
-    default: true,
+    description: 'Also save a copy to a Picsart Drive subfolder (default: false)',
+    default: false,
     allowNo: true,
   }),
   'drive-folder': Flags.string({

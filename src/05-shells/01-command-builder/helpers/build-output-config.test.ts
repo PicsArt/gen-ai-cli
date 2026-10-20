@@ -6,7 +6,7 @@
  *
  *   - flags override userConfig defaults
  *   - download: --no-download wins; else --download; else userConfig.downloadDir; else './output'
- *   - driveSave: defaults to true; --save-to-drive=false flips it
+ *   - driveSave: defaults to false (backend already saves); --save-to-drive turns it on
  *   - boolean side-effects (clipboard/bell/notify) OR-merge flags with userConfig
  *   - open: explicit flag wins (including `false`); else userConfig.autoOpen ?? false
  *   - modeFlags pass through verbatim (jsonMode / quietMode / plainMode)
@@ -47,14 +47,14 @@ describe('buildOutputConfig — download path', () => {
 });
 
 describe('buildOutputConfig — drive', () => {
-  it('driveSave defaults to true when the flag is absent', () => {
+  it('driveSave defaults to false when the flag is absent (backend already saves)', () => {
     const out = buildOutputConfig({}, userConfig(), noModes);
-    expect(out.driveSave).toBe(true);
+    expect(out.driveSave).toBe(false);
   });
 
-  it('driveSave honors an explicit false (--no-save-to-drive)', () => {
-    const out = buildOutputConfig({ 'save-to-drive': false }, userConfig(), noModes);
-    expect(out.driveSave).toBe(false);
+  it('driveSave honors an explicit true (--save-to-drive)', () => {
+    const out = buildOutputConfig({ 'save-to-drive': true }, userConfig(), noModes);
+    expect(out.driveSave).toBe(true);
   });
 
   it('driveFolder defaults to "gen-ai-cli"', () => {

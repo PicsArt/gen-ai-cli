@@ -39,8 +39,8 @@ const output: StaticStepGroup = [
   {
     kind: 'confirm',
     key: 'saveToDrive',
-    label: 'Save result to Picsart Drive?',
-    default: true,
+    label: 'Also save a copy to a Picsart Drive subfolder?',
+    default: false,
   },
   {
     kind: 'text',

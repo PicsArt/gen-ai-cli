@@ -29,7 +29,7 @@ export function buildOutputConfig(
 
   return {
     download,
-    driveSave: (flags['save-to-drive'] as boolean) ?? true,
+    driveSave: (flags['save-to-drive'] as boolean) ?? false,
     driveFolder: (flags['drive-folder'] as string) ?? 'gen-ai-cli',
     open,
     clipboard,

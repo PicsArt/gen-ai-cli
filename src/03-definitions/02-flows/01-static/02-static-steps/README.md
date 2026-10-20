@@ -12,7 +12,7 @@ These steps prompt for behaviors the *CLI* invents — "save to Drive?", "where 
 
 | Group | When to use | Steps |
 |---|---|---|
-| `output` | Any flow that produces a downloadable asset | `downloadPath` (text), `saveToDrive` (confirm, default true), `driveFolder` (text) |
+| `output` | Any flow that produces a downloadable asset | `downloadPath` (text), `saveToDrive` (confirm, default false), `driveFolder` (text) |
 | `confirm` | Add a yes/no gate before kicking off generation | `proceed` (confirm, required, default true) |
 
 ## What's deliberately NOT here

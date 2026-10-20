@@ -27,11 +27,11 @@ describe('STATIC_STEP_GROUPS — output', () => {
     expect(keys).toEqual(['downloadPath', 'saveToDrive', 'driveFolder']);
   });
 
-  it('saveToDrive defaults to true (CLI users usually want this)', () => {
+  it('saveToDrive defaults to false (backend already saves to Drive)', () => {
     const s = STATIC_STEP_GROUPS.output.find((x) => x.key === 'saveToDrive');
     expect(s?.kind).toBe('confirm');
     if (s?.kind !== 'confirm') throw new Error('expected confirm');
-    expect(s.default).toBe(true);
+    expect(s.default).toBe(false);
   });
 });
 

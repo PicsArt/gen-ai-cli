@@ -61,9 +61,11 @@ const output: StaticFlagSet = {
     aliases: ['out'],
     // No char: lowercase `-d` collides with descriptor --duration. Use `--out` short alias.
   }),
+  // Off by default: the backend already saves every generation to the
+  // user's "Gen AI" Drive folder. Opt in for an extra copy in --drive-folder.
   'save-to-drive': Flags.boolean({
-    description: 'Save result to Picsart Drive',
-    default: true,
+    description: 'Also save a copy to a Picsart Drive subfolder (backend already saves to "Gen AI")',
+    default: false,
     allowNo: true,
     aliases: ['drive'],
   }),
