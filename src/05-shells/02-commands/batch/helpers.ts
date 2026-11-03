@@ -4,12 +4,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { GenerationContext, MediaModelId, TextModelId } from '@picsart/ai-sdk';
-import { createClient, findModel } from '@picsart/ai-sdk';
+import { findModel } from '@picsart/ai-sdk';
 import { modelAvailable } from '#flows';
 import type { OutputManager } from '#infra/ui-core/output.ts';
 import { runPool } from '#infra/utils/pool.ts';
 import { resolveGenerationInputs } from '#pipeline/02-resolve/media.ts';
-import { getAuthenticatedFetch } from '#services/client.ts';
+import { createSdkClient, getAuthenticatedFetch } from '#services/client.ts';
 import { getApiUrl, getUploadUrl } from '#services/constants.ts';
 
 export interface BatchJob {
@@ -141,7 +141,7 @@ export async function runBatch(
   const { authenticatedFetch, creds } = await getAuthenticatedFetch();
   const apiUrl = getApiUrl();
   const uploadUrl = getUploadUrl();
-  const ai = createClient({ fetch: authenticatedFetch, apiUrl });
+  const ai = createSdkClient({ fetch: authenticatedFetch, apiUrl });
 
   const processJob = async (job: BatchJob): Promise<void> => {
     const start = Date.now();

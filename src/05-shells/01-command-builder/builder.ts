@@ -30,7 +30,6 @@
  *      Drive save, history, extras.
  *   8. Friendly handling of `InsufficientCreditsError` (offers billing link).
  */
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { composeFlagsForFlow } from '#flows';
 import { ExitCode } from '#infra/errors/index.ts';
@@ -47,6 +46,7 @@ import type { ResolvedInputs } from '#root/types.ts';
 import { getAuthenticatedFetch } from '#services/client.ts';
 import { getApiUrl, getUploadUrl } from '#services/constants.ts';
 import { flushPulse } from '#services/pulse.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import { getUserConfig } from '#services/user-config.ts';
 import { buildDriveContext } from './helpers/build-drive-context.ts';
 import { buildOutputConfig } from './helpers/build-output-config.ts';
@@ -232,11 +232,9 @@ export function createOperationCommand(flow: FlowSpec) {
     static summary = flow.description;
     static examples = flow.examples ? [...flow.examples] : [];
 
-    // Cast: composeFlagsForFlow returns Record<string, unknown> because the
-    // FlagSet is heterogeneous (string / boolean / integer flags). Runtime
-    // values are real oclif Flag objects — the cross-block collision test
-    // in `03-definitions/02-flows/03-compose/01-flag-set/` asserts that.
-    static flags = composeFlagsForFlow(flow, getCatalog(), ALL_MODELS) as never;
+    // Placeholder for the type checker; the real flags are a lazy getter
+    // installed below the class.
+    static flags = {} as never;
 
     override async init() {
       // Rewrite `--flag true|false` into oclif-native `--flag` / `--no-flag`
@@ -256,6 +254,27 @@ export function createOperationCommand(flow: FlowSpec) {
       await runOperation(flow, flags as Record<string, unknown>, this.deps);
     }
   }
+
+  // Flags come from the model catalog, which in dynamic SDK mode exists only
+  // once `bootSdkCatalog()` has run — after every command module is imported
+  // (bundle-entry imports COMMANDS statically). So compose them on first read
+  // (oclif reads them inside `execute()`), not at class definition. A getter
+  // rather than `static get flags()`: TS rejects an accessor overriding the
+  // base class's `flags` property.
+  //
+  // Cast: composeFlagsForFlow returns Record<string, unknown> because the
+  // FlagSet is heterogeneous (string / boolean / integer flags). Runtime
+  // values are real oclif Flag objects — the cross-block collision test
+  // in `03-definitions/02-flows/03-compose/01-flag-set/` asserts that.
+  let flags: ReturnType<typeof composeFlagsForFlow> | undefined;
+  Object.defineProperty(OperationCommand, 'flags', {
+    configurable: true,
+    enumerable: true,
+    get: () => {
+      flags ??= composeFlagsForFlow(flow, getCatalog(), allModels());
+      return flags;
+    },
+  });
 
   return OperationCommand;
 }

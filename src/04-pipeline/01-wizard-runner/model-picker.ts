@@ -4,7 +4,7 @@
  */
 
 import type { GenerationMode, ModelDefinition } from '@picsart/ai-sdk';
-import { getModelsByMode, Model } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import chalk from 'chalk';
 import { type ColorManager, createColorManager } from '#infra/ui-core/color.ts';
 import { renderPresetBadge } from '#infra/ui-core/components/badge.ts';
@@ -12,6 +12,7 @@ import { badgePriority } from '#infra/utils/badge-priority.ts';
 import { fuzzyFilter } from '#infra/utils/fuzzy.ts';
 import type { WizardStep } from '#pipeline/01-wizard-runner/wizard-state.ts';
 import { BACK, CANCEL, runWizard } from '#pipeline/01-wizard-runner/wizard-state.ts';
+import { modelsByMode } from '#services/sdk-catalog.ts';
 import { searchWithNav, selectWithNav } from './nav.ts';
 import { PAGE_SIZE } from './prompts/prompt-files.ts';
 
@@ -100,7 +101,7 @@ export async function promptForModel(
     {
       id: 'model',
       run: async () => {
-        const models = getModelsByMode(resolvedMode).filter((m) => !m.deprecated);
+        const models = modelsByMode(resolvedMode).filter((m) => !m.deprecated);
         models.sort((a, b) => badgePriority(a) - badgePriority(b));
         resolvedModels = models;
 

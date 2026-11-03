@@ -1,10 +1,11 @@
 import { Flags } from '@oclif/core';
 import type { GenerationMode, ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS, catalog, DEFAULT_VISIBLE_RELEASES, Model, releaseOf } from '@picsart/ai-sdk';
+import { catalog, DEFAULT_VISIBLE_RELEASES, Model, releaseOf } from '@picsart/ai-sdk';
 import chalk from 'chalk';
 import { selectWithNav } from '#pipeline/01-wizard-runner/nav.ts';
 import { BACK, CANCEL } from '#pipeline/01-wizard-runner/wizard-state.ts';
 import { ensurePricingClient } from '#services/client.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import { renderModelInfoLines } from '../../../01-infrastructure/ui/model-info.ts';
 import { renderCard } from '../../../01-infrastructure/ui-core/components/card.ts';
 import { badgePriority } from '../../../01-infrastructure/utils/badge-priority.ts';
@@ -63,7 +64,7 @@ export default class ModelsList extends BaseCommand {
     await ensurePricingClient(this.out);
     await catalog.pricing.load().catch(() => undefined);
 
-    let models = ALL_MODELS.filter((m) => m.mode !== 'json' && DEFAULT_VISIBLE_RELEASES.includes(releaseOf(m)));
+    let models = allModels().filter((m) => m.mode !== 'json' && DEFAULT_VISIBLE_RELEASES.includes(releaseOf(m)));
     if (flags.mode) models = models.filter((m) => m.mode === (flags.mode as GenerationMode));
 
     if (!flags.disabled) models = models.filter((m) => !m.deprecated);

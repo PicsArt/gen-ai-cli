@@ -18,18 +18,13 @@
  * should validate against, and which models declared it?"
  *
  * Tests pass hand-built fixture models to loadCatalog. Production code
- * calls getCatalog() which lazily walks the real ALL_MODELS and
- * caches the result for the rest of the process.
+ * calls getCatalog() which lazily walks the active SDK catalog (`allModels()`:
+ * the bundle, or the models-hub catalog in dynamic mode) and caches the result.
  *
  * See README.md for a walked example.
  */
-import {
-  ALL_MODELS,
-  type EnumDescriptor,
-  type EnumOption,
-  type ModelDefinition,
-  type ParamDescriptor,
-} from '@picsart/ai-sdk';
+import type { EnumDescriptor, EnumOption, ModelDefinition, ParamDescriptor } from '@picsart/ai-sdk';
+import { allModels } from '#services/sdk-catalog.ts';
 import { ALIAS_MAP, type AliasMap } from '../01-primitives/01-aliases/index.ts';
 import { camelToKebab } from '../01-primitives/02-coercion/index.ts';
 
@@ -331,14 +326,18 @@ function unionEnumOptions(a: AnyEnum, b: AnyEnum): AnyEnum {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 let _cached: Catalog | undefined;
+let _cachedFor: readonly ModelDefinition[] | undefined;
 
 /**
- * Production accessor. Builds the catalog from the real SDK on first call
- * and caches it for the rest of the process. Tests call `loadCatalog` directly
- * with fixture models and never touch this.
+ * Production accessor. Builds the catalog from the active SDK catalog on
+ * first call and caches it per model list — so a read before boot cannot
+ * freeze the bundle into a dynamic-mode process. Tests call `loadCatalog`
+ * directly with fixture models and never touch this.
  */
 export function getCatalog(): Catalog {
-  if (_cached) return _cached;
-  _cached = loadCatalog(ALL_MODELS, ALIAS_MAP);
+  const models = allModels();
+  if (_cached && _cachedFor === models) return _cached;
+  _cached = loadCatalog(models, ALIAS_MAP);
+  _cachedFor = models;
   return _cached;
 }

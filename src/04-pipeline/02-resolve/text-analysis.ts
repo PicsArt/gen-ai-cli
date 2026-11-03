@@ -14,11 +14,13 @@
  *      a describe instruction when none was given, and require an image OR a
  *      video (the flat `requiredInputs` can't express "one of").
  */
+
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS, Model } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import type { ResolvedInputs } from '#root/types.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 
 const DEFAULT_ANALYSIS_PROMPT = 'Describe this image or video in detail.';
 
@@ -60,7 +62,7 @@ export function finalizeTextAnalysisInputs(
     if (userPickedModel) {
       throw new UsageError(`Model "${model.name}" can't take video. Use a video-capable model such as gemini-3-pro.`);
     }
-    const videoModel = ALL_MODELS.find((m) => flow.modelFilter(m) && modelAcceptsVideo(m));
+    const videoModel = allModels().find((m) => flow.modelFilter(m) && modelAcceptsVideo(m));
     if (!videoModel) {
       throw new UsageError('No video-capable model is available for this flow.');
     }

@@ -11,8 +11,8 @@
  *   - default      → human-friendly cards / colored sections
  *   - --json       → machine-parseable AuditReport
  */
+
 import { Flags } from '@oclif/core';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { renderCard } from '#infra/ui-core/components/card.ts';
 import { renderKeyValue } from '#infra/ui-core/components/key-value.ts';
 import {
@@ -25,6 +25,7 @@ import {
   readResolverSources,
 } from '#param-surface';
 import { BaseCommand } from '#root/base-command.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 
 export default class DevParams extends BaseCommand {
   static summary = 'Audit the CLI parameter surface against the SDK catalog';
@@ -51,7 +52,7 @@ items are present.`;
   async run(): Promise<void> {
     const { flags } = await this.parse(DevParams);
 
-    const catalog = loadCatalog(ALL_MODELS, ALIAS_MAP);
+    const catalog = loadCatalog(allModels(), ALIAS_MAP);
     const fileWiringGaps = findFileWiringGaps(catalog, readResolverSources());
     const report = auditCatalog(catalog, new Set(Object.keys(ALIAS_MAP)), EXPECTED_SDK_GAPS, {
       longFlagThreshold: flags['long-flag-threshold'],

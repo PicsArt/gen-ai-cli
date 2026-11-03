@@ -6,12 +6,13 @@
  */
 
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS, findModel, Model } from '@picsart/ai-sdk';
+import { findModel, Model } from '@picsart/ai-sdk';
 import { type FlowSpec, modelAvailable } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import type { FieldError } from '#infra/errors/validation.ts';
 import { collectGenerationContext, getCatalog } from '#param-surface';
 import type { ResolvedInputs } from '#root/types.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 
 /**
  * SDK gap overlay — flags whose ctx key has no `paramConfig` descriptor in
@@ -56,7 +57,7 @@ export function resolveModelFromFlag(modelFlag: string | undefined, flow: FlowSp
 
 /** Get all models that match a flow's filter (and aren't disabled). */
 export function getModelsForOperation(flow: FlowSpec): ModelDefinition[] {
-  return ALL_MODELS.filter((m) => modelAvailable(m) && flow.modelFilter(m));
+  return allModels().filter((m) => modelAvailable(m) && flow.modelFilter(m));
 }
 
 /**

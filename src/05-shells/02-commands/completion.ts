@@ -1,8 +1,8 @@
 import { Args } from '@oclif/core';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { modelAvailable } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import { BaseCommand } from '#root/base-command.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 
 /**
  * Top-level command names for completion, derived from the oclif command
@@ -205,7 +205,9 @@ export default class Completion extends BaseCommand {
 
   async run() {
     const { args } = await this.parse(Completion);
-    const modelIds = ALL_MODELS.filter(modelAvailable).map((m) => shellSafe(m.id));
+    const modelIds = allModels()
+      .filter(modelAvailable)
+      .map((m) => shellSafe(m.id));
 
     // Derived from the live oclif registry, not a hardcoded list.
     const commands = topLevelCommands(this.config.commands);

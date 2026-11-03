@@ -17,10 +17,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@picsart/ai-sdk', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@picsart/ai-sdk')>()),
-  createClient: () => mocks,
   findModel: mocks.findModel,
 }));
 vi.mock('#services/client.ts', () => ({
+  createSdkClient: () => mocks,
   getAuthenticatedFetch: async () => ({ authenticatedFetch: vi.fn(), creds: { token: 'test', uid: 'test' } }),
 }));
 vi.mock('#pipeline/02-resolve/media.ts', () => ({ resolveGenerationInputs: mocks.resolveInputs }));

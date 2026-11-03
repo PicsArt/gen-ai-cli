@@ -2,10 +2,11 @@
  * Shared SDK client factory for CLI commands.
  * Builds a createClient() instance with authenticated fetch and Drive enabled.
  */
-import { catalog, createClient } from '@picsart/ai-sdk';
+import { type ClientConfig, catalog, createClient } from '@picsart/ai-sdk';
 import { AuthError } from '#infra/errors/auth.ts';
 import { createAuthenticatedFetch } from '#services/authenticated-fetch.ts';
 import { getApiUrl } from '#services/constants.ts';
+import { getSdkMode } from '#services/sdk-mode.ts';
 import { type AuthNotifier, getEnvCredentials, getToken, loadCredentials } from './auth.ts';
 
 const CLI_DRIVE_FOLDER = 'Gen AI';
@@ -30,6 +31,15 @@ export async function getAuthenticatedFetch(notify?: AuthNotifier) {
   return { authenticatedFetch, creds };
 }
 
+/**
+ * `createClient()` in the process's catalog mode (see sdk-mode.ts) — the only
+ * place the SDK factory is called. The SDK forbids mixing static and dynamic
+ * clients in one process, so callers never pass `mode` themselves.
+ */
+export function createSdkClient(config: ClientConfig) {
+  return createClient({ ...config, mode: getSdkMode() });
+}
+
 let _client: ReturnType<typeof createClient> | null = null;
 
 /**
@@ -43,7 +53,7 @@ let _client: ReturnType<typeof createClient> | null = null;
 export async function getAiClient(notify?: AuthNotifier) {
   if (_client) return _client;
   const { authenticatedFetch } = await getAuthenticatedFetch(notify);
-  _client = createClient({
+  _client = createSdkClient({
     fetch: authenticatedFetch,
     apiUrl: getApiUrl(),
     drive: { folder: CLI_DRIVE_FOLDER },

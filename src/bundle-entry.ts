@@ -8,6 +8,7 @@ import { execute } from '@oclif/core';
 import { createColorManager } from './01-infrastructure/ui-core/color.ts';
 import { createOutputManager } from './01-infrastructure/ui-core/output.ts';
 import { runWithPulse } from './02-services/pulse.ts';
+import { bootSdkCatalog } from './02-services/sdk-catalog.ts';
 import { printUpdateNotice, startUpdateCheck } from './02-services/update-check.ts';
 import { startRepl } from './05-shells/03-entry/repl.ts';
 
@@ -77,6 +78,10 @@ export async function main(): Promise<void> {
   // PULSE_OPT_OUT=1 (calls become no-ops). pulse.flush() runs automatically in
   // runWithPulse's finally block — no need to call it here.
   await runWithPulse(version, async () => {
+    // Fix the SDK catalog mode and install the catalog before anything reads
+    // models — oclif composes every operation's flags from it. See sdk-catalog.ts.
+    await bootSdkCatalog();
+
     if (args.length === 0 && process.stdin.isTTY) {
       const color = createColorManager({ enabled: 'auto' });
       createOutputManager({ color, quiet: false, debug: false, jsonMode: false, plainMode: false });

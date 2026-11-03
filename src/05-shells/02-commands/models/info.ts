@@ -1,10 +1,11 @@
 import { Args } from '@oclif/core';
-import { ALL_MODELS, findModel, Model } from '@picsart/ai-sdk';
+import { findModel, Model } from '@picsart/ai-sdk';
 import { modelAvailable } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import { renderModelInfoLines } from '#infra/ui/model-info.ts';
 import { renderCard } from '#infra/ui-core/components/card.ts';
 import { BaseCommand } from '#root/base-command.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 
 export default class ModelsInfo extends BaseCommand {
   static description = 'Show detailed model information';
@@ -26,7 +27,7 @@ export default class ModelsInfo extends BaseCommand {
     const { args } = await this.parse(ModelsInfo);
 
     if (!args.model) {
-      const models = ALL_MODELS.filter(modelAvailable);
+      const models = allModels().filter(modelAvailable);
       const sample = models.slice(0, 5).map((m) => m.id);
 
       if (this.isJsonMode) {
