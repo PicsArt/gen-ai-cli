@@ -7,7 +7,7 @@
  *
  * The data flow:
  *
- *   ALL_MODELS              loadCatalog              Catalog
+ *   allModels()              loadCatalog              Catalog
  *   ─────────────────────  →  ──────────────────  →  ─────────────────
  *   [ modelA, modelB, … ]      merge by key,            bySdkKey / byFlag /
  *   each with paramConfig      union enum options,      all() — pointing to

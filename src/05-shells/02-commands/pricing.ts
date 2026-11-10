@@ -20,6 +20,7 @@ function formatCreditsLabel(range: CreditRange | null): string {
 }
 
 export default class Pricing extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Show credit costs for models';
 
   static examples = [

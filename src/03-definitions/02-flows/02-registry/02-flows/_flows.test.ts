@@ -14,8 +14,8 @@
  *      emptied all eight sub-category flows).
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
+import { allModels } from '#services/sdk-catalog.ts';
 import { FLOWS, type FlowId } from './_flows.ts';
 
 const ALL_INPUT_TYPES: ModelDefinition['inputType'][] = [
@@ -259,7 +259,7 @@ describe('FLOWS — requiredInputs', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('FLOWS — against the real SDK model list', () => {
-  const models = ALL_MODELS;
+  const models = allModels();
 
   it('every flow matches at least one live model (a zero-match flow is a dead command)', () => {
     const empty: string[] = [];

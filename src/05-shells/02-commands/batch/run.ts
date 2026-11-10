@@ -22,6 +22,7 @@ import {
 import { validateManifestStructure } from '#shells/02-commands/batch/manifest-schema.ts';
 
 export default class BatchRun extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Run batch jobs from a manifest file';
 
   static examples = [

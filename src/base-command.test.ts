@@ -7,7 +7,7 @@
  */
 import type { Config } from '@oclif/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ExitCode } from './01-infrastructure/errors/index.ts';
+import { AuthError, ExitCode } from './01-infrastructure/errors/index.ts';
 
 const flushPulseMock = vi.hoisted(() => vi.fn(async (): Promise<void> => undefined));
 const writeDebugLogMock = vi.hoisted(() => vi.fn(() => '/tmp/debug.log'));
@@ -18,7 +18,7 @@ vi.mock('#services/user-config.ts', () => ({ getUserConfig: () => ({}) }));
 
 import { createColorManager } from './01-infrastructure/ui-core/color.ts';
 import { createOutputManager } from './01-infrastructure/ui-core/output.ts';
-import { BaseCommand } from './base-command.ts';
+import { argvRequestsJson, BaseCommand } from './base-command.ts';
 import { createCliDeps } from './deps.ts';
 
 class TestCommand extends BaseCommand {
@@ -110,5 +110,52 @@ describe('BaseCommand.catch — --json output contract', () => {
 
     expect(stdoutWrites).toHaveLength(0);
     expect(stderrWrites.join('')).toContain('boom');
+  });
+});
+
+describe('BaseCommand.catch — before init() built deps', () => {
+  // An operation's catalog check (and any oclif parse error) runs before
+  // flags are parsed, so catch() must read --json off argv.
+  it('emits JSON when argv carries --json', async () => {
+    const cmd = new TestCommand(['-p', 'x', '--json'], {} as Config);
+    await runCatch(cmd, new AuthError('the model catalog needs a signed-in user (not logged in).'));
+
+    expect(stdoutWrites).toHaveLength(1);
+    const parsed = JSON.parse(stdoutWrites[0]) as { error: string; code: number };
+    expect(parsed.code).toBe(ExitCode.AUTH_ERROR);
+    expect(stderrWrites).toHaveLength(0);
+  });
+
+  it('emits JSON for the --json=true form operations accept', async () => {
+    const cmd = new TestCommand(['-p', 'x', '--json=true'], {} as Config);
+    await runCatch(cmd, new AuthError('the model catalog needs a signed-in user (not logged in).'));
+
+    expect(stdoutWrites).toHaveLength(1);
+    expect(stderrWrites).toHaveLength(0);
+  });
+
+  it('renders the stderr card when argv has no --json', async () => {
+    const cmd = new TestCommand(['-p', 'x'], {} as Config);
+    await runCatch(cmd, new AuthError('the model catalog needs a signed-in user (not logged in).'));
+
+    expect(stdoutWrites).toHaveLength(0);
+    expect(stderrWrites.join('')).toContain('signed-in user');
+  });
+});
+
+describe('argvRequestsJson', () => {
+  it.each([
+    [['--json'], true],
+    [['--json=true'], true],
+    [['--json=TRUE'], true],
+    [['--json', 'true'], true],
+    [['--json=false'], false],
+    [['--json', 'false'], false],
+    [['--json', '-p', 'x'], true],
+    [['--json', '--json=false'], false],
+    [['-p', '--', '--json'], false],
+    [['-p', 'x'], false],
+  ])('%j → %s', (argv, expected) => {
+    expect(argvRequestsJson(argv)).toBe(expected);
   });
 });

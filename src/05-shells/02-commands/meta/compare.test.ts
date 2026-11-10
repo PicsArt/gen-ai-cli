@@ -2,9 +2,10 @@
  * Spec for the compare command's pure helpers (model parsing + resolution).
  * The run path itself is auth-bound and exercised via real CLI smoke.
  */
-import { ALL_MODELS } from '@picsart/ai-sdk';
+
 import { describe, expect, it } from 'vitest';
 import { UsageError } from '#infra/errors/usage.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import { parseCompareModels, resolveCompareModels } from './compare.ts';
 
 describe('parseCompareModels', () => {
@@ -28,13 +29,13 @@ describe('parseCompareModels', () => {
 
 describe('resolveCompareModels', () => {
   it('resolves real model ids to definitions', () => {
-    const realId = ALL_MODELS.find((m) => !m.deprecated)!.id;
+    const realId = allModels().find((m) => !m.deprecated)!.id;
     const resolved = resolveCompareModels([realId]);
     expect(resolved[0].id).toBe(realId);
   });
 
   it('throws a UsageError on the first unknown id', () => {
-    const realId = ALL_MODELS.find((m) => !m.deprecated)!.id;
+    const realId = allModels().find((m) => !m.deprecated)!.id;
     expect(() => resolveCompareModels([realId, 'totally-fake-zzz'])).toThrow(UsageError);
   });
 });

@@ -1,6 +1,7 @@
 import { Parser } from '@oclif/core';
-import { ALL_MODELS, type ObjectDescriptor, type ParamDescriptor } from '@picsart/ai-sdk';
+import type { ObjectDescriptor, ParamDescriptor } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
+import { allModels } from '#services/sdk-catalog.ts';
 import { coerceJsonObject, coerceToDescriptor } from './01-primitives/02-coercion/index.ts';
 import { loadCatalog } from './02-catalog/index.ts';
 import { generateFlagsFromCatalog } from './03-describe/01-flag-schema/index.ts';
@@ -128,7 +129,7 @@ describe('SDK JSON descriptors', () => {
 });
 
 it('round-trips the real typesafe-evaluate question dictionary without dropping vendor options', () => {
-  const model = ALL_MODELS.find((model) => model.id === 'typesafe-evaluate');
+  const model = allModels().find((model) => model.id === 'typesafe-evaluate');
   expect(model).toBeDefined();
   const cat = loadCatalog([model!], {});
   const questions = {
@@ -144,7 +145,7 @@ it('round-trips the real typesafe-evaluate question dictionary without dropping 
 });
 
 it('declares and reads the real Gemini 3.8 parts-style flag across the universal catalog', async () => {
-  const cat = loadCatalog(ALL_MODELS, {});
+  const cat = loadCatalog(allModels(), {});
   const flags = generateFlagsFromCatalog(cat) as Record<string, { multiple?: boolean; description?: string }>;
   expect(flags['parts-style']).toMatchObject({ multiple: true });
   expect(flags['parts-style'].description).toContain('Style');
@@ -240,7 +241,7 @@ it('normalizes shared repeatable flags while enforcing the selected scalar objec
 });
 
 it('propagates real object-array minimums and leaves unlimited arrays uncapped', () => {
-  const models = ALL_MODELS.filter((model) => model.id === 'eleven-dialogue-v4');
+  const models = allModels().filter((model) => model.id === 'eleven-dialogue-v4');
   expect(models).toHaveLength(1);
   const step = generateWizardStepsFromCatalog(loadCatalog(models, {})).find((step) => step.key === 'dialogue');
   expect(step).toMatchObject({ kind: 'object', array: true, arrayMin: 1 });

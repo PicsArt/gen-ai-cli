@@ -174,19 +174,25 @@ export async function runBatch(
       out.info(`[${job.id}] Starting ${model.name}...`);
 
       if (model.mode === 'text') {
-        const result = await ai.generateText(model.id as TextModelId, ctx as GenerationContext & { prompt: string });
+        const result = await ai.generateText(
+          model.id as TextModelId,
+          ctx as Record<string, unknown> & { prompt: string },
+        );
         const durationMs = Date.now() - start;
         results.jobs.push({ id: job.id, model: job.model, status: 'completed', text: result.text, durationMs });
         out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);
       } else if (model.syncExecute) {
         // Sync models — use ai.generate() directly (fast, no progress needed)
-        const result = await ai.generate(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
+        const result = await ai.generate(model.id as MediaModelId, ctx as Record<string, unknown> & { prompt: string });
         const durationMs = Date.now() - start;
         results.jobs.push({ id: job.id, model: job.model, status: 'completed', url: result.url, durationMs });
         out.success(`[${job.id}] Done (${(durationMs / 1000).toFixed(1)}s)`);
       } else {
         // Async models — submit + subscribe for progress
-        const generationId = await ai.submit(model.id as MediaModelId, ctx as GenerationContext & { prompt: string });
+        const generationId = await ai.submit(
+          model.id as MediaModelId,
+          ctx as Record<string, unknown> & { prompt: string },
+        );
         for await (const event of ai.subscribe(model.id as MediaModelId, generationId, { intervalMs: 3000 })) {
           const elapsed = ((Date.now() - start) / 1000).toFixed(0);
           if (event.type === 'generation.progress') {

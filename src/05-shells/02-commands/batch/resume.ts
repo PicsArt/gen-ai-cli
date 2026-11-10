@@ -19,6 +19,7 @@ import {
 } from '#shells/02-commands/batch/helpers.ts';
 
 export default class BatchResume extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Re-run failed jobs from a previous batch';
 
   static examples = [

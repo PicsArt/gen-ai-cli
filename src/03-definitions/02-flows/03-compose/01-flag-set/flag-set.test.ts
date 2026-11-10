@@ -7,10 +7,10 @@
  *   - merges in a stable order (static wins on collision)
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ModelLike } from '#param-surface';
 import { ALIAS_MAP, loadCatalog } from '#param-surface';
+import { allModels } from '#services/sdk-catalog.ts';
 import { defineFlow } from '../../02-registry/01-flow-spec/index.ts';
 import { FLOWS } from '../../02-registry/02-flows/index.ts';
 import { composeFlagsForFlow } from './flag-set.ts';
@@ -236,7 +236,7 @@ describe('composeFlagsForFlow — SDK-gap flags (Kling)', () => {
   });
 
   it('real SDK: the video flow ships --external-task-id (regression: flag was documented but never composed)', () => {
-    const models = ALL_MODELS;
+    const models = allModels();
     const catalog = loadCatalog(models, ALIAS_MAP);
     const flags = composeFlagsForFlow(FLOWS.video, catalog, models);
     expect(flags['external-task-id']).toBeDefined();
@@ -248,7 +248,7 @@ describe('composeFlagsForFlow — SDK-gap flags (Kling)', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('composeFlagsForFlow — against the real SDK, for every registered flow', () => {
-  const models = ALL_MODELS;
+  const models = allModels();
   const catalog = loadCatalog(models, ALIAS_MAP);
 
   type ComposedFlag = { char?: string; aliases?: readonly string[] };

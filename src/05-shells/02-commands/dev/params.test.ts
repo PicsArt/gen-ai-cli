@@ -26,8 +26,9 @@ vi.mock('#param-surface', () => ({
   findFileWiringGaps: findFileWiringGapsMock,
   readResolverSources: readResolverSourcesMock,
 }));
-vi.mock('@picsart/ai-sdk', () => ({
-  ALL_MODELS: [],
+vi.mock('#services/sdk-catalog.ts', () => ({
+  allModels: () => [],
+  ensureCatalog: async () => undefined,
 }));
 
 import DevParams from './params.ts';

@@ -6,7 +6,6 @@ import { type ClientConfig, catalog, createClient } from '@picsart/ai-sdk';
 import { AuthError } from '#infra/errors/auth.ts';
 import { createAuthenticatedFetch } from '#services/authenticated-fetch.ts';
 import { getApiUrl } from '#services/constants.ts';
-import { getSdkMode } from '#services/sdk-mode.ts';
 import { type AuthNotifier, getEnvCredentials, getToken, loadCredentials } from './auth.ts';
 
 const CLI_DRIVE_FOLDER = 'Gen AI';
@@ -31,13 +30,9 @@ export async function getAuthenticatedFetch(notify?: AuthNotifier) {
   return { authenticatedFetch, creds };
 }
 
-/**
- * `createClient()` in the process's catalog mode (see sdk-mode.ts) — the only
- * place the SDK factory is called. The SDK forbids mixing static and dynamic
- * clients in one process, so callers never pass `mode` themselves.
- */
+/** The only place the SDK's `createClient()` is called. */
 export function createSdkClient(config: ClientConfig) {
-  return createClient({ ...config, mode: getSdkMode() });
+  return createClient(config);
 }
 
 let _client: ReturnType<typeof createClient> | null = null;

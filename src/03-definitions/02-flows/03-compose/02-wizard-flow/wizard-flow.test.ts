@@ -6,10 +6,10 @@
  *   - order: [picker, ...descriptors, ...static]
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ModelLike } from '#param-surface';
 import { ALIAS_MAP, loadCatalog } from '#param-surface';
+import { allModels } from '#services/sdk-catalog.ts';
 import { defineFlow } from '../../02-registry/01-flow-spec/index.ts';
 import { FLOWS } from '../../02-registry/02-flows/index.ts';
 import { composeWizardForFlow } from './wizard-flow.ts';
@@ -212,7 +212,7 @@ describe('composeWizardForFlow — order', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('composeWizardForFlow — against the real SDK, for every registered flow', () => {
-  const models = ALL_MODELS;
+  const models = allModels();
   const catalog = loadCatalog(models, ALIAS_MAP);
 
   for (const [id, flow] of Object.entries(FLOWS)) {

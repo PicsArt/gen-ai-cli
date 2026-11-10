@@ -18,6 +18,7 @@ function readStdin(): Promise<string> {
 }
 
 export default class Validate extends BaseCommand {
+  static needsCatalog = true;
   static description = "Validate a generation payload against a model's parameter schema";
 
   static examples = [

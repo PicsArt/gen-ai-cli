@@ -14,12 +14,13 @@
  *     - throws ValidationError when required inputs are missing
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS, Model } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { FlowSpec } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
 import { ValidationError } from '#infra/errors/validation.ts';
 import type { CliDeps } from '#root/deps.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import { resolveScripted } from './resolver.ts';
 
 const ACCEPT_ALL: FlowSpec = {
@@ -37,25 +38,25 @@ function someModel(): ModelDefinition {
   // Pick a model that exposes `imageUrls` so the scripted resolver's `-i`
   // auto-routing leaves it in `files.images` (rather than rerouting to
   // `startFrame` for models that only have a start frame).
-  return ALL_MODELS.find((m) => !m.deprecated && !!Model(m.id).params().file('imageUrls')) as ModelDefinition;
+  return allModels().find((m) => !m.deprecated && !!Model(m.id).params().file('imageUrls')) as ModelDefinition;
 }
 
 function startFrameOnlyModel(): ModelDefinition | undefined {
-  return ALL_MODELS.find(
+  return allModels().find(
     (m) => !m.deprecated && !Model(m.id).params().file('imageUrls') && !!Model(m.id).params().file('startFrame'),
   );
 }
 
 function videoUrlsOnlyModel(): ModelDefinition | undefined {
   // e.g. seedance-2.0-video-extend — declares `videoUrls`, no `videoUrl`
-  return ALL_MODELS.find(
+  return allModels().find(
     (m) => !m.deprecated && !Model(m.id).params().file('videoUrl') && !!Model(m.id).params().file('videoUrls'),
   );
 }
 
 function audioUrlsOnlyModel(): ModelDefinition | undefined {
   // e.g. seed-audio-1.0 — declares `audioUrls`, no `audioUrl`
-  return ALL_MODELS.find(
+  return allModels().find(
     (m) => !m.deprecated && !Model(m.id).params().file('audioUrl') && !!Model(m.id).params().file('audioUrls'),
   );
 }
@@ -257,7 +258,7 @@ describe('resolveScripted — required input validation', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('resolveScripted — Kling multi-shot pre-flight', () => {
-  const kling = ALL_MODELS.find((m) => m.id === 'kling-v3') as ModelDefinition;
+  const kling = allModels().find((m) => m.id === 'kling-v3') as ModelDefinition;
 
   it('rejects --multi-shot without --shot-type', async () => {
     await expect(
@@ -355,7 +356,7 @@ describe('resolveScripted — user-config defaultModel', () => {
   });
 
   it('an explicit --model beats config.defaultModel', async () => {
-    const models = ALL_MODELS.filter((m) => !m.deprecated);
+    const models = allModels().filter((m) => !m.deprecated);
     const [a, b] = models;
     const withConfig = { flags: {}, config: { defaultModel: a.id } } as CliDeps;
     const out = await resolveScripted(ACCEPT_ALL, { model: b.id, prompt: 'hi' }, withConfig);
@@ -364,7 +365,7 @@ describe('resolveScripted — user-config defaultModel', () => {
 
   it('ignores a config defaultModel the flow filter rejects and falls back to flow.defaultModel', async () => {
     const m = someModel();
-    const other = ALL_MODELS.find((x) => !x.deprecated && x.id !== m.id) as ModelDefinition;
+    const other = allModels().find((x) => !x.deprecated && x.id !== m.id) as ModelDefinition;
     const flow: FlowSpec = {
       ...ACCEPT_ALL,
       modelFilter: (x) => x.id !== other.id, // reject the configured default

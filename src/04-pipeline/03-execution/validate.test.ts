@@ -8,14 +8,14 @@
  *     - returns { valid, errors?, schema, context }
  */
 import type { ModelDefinition } from '@picsart/ai-sdk';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { ResolvedInputs } from '#root/types.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import { validateDryRun } from './validate.ts';
 
 function realModel(): ModelDefinition {
   // Pick any real enabled model — we just need a known id for validation.
-  return ALL_MODELS.filter((m) => !m.deprecated)[0];
+  return allModels().filter((m) => !m.deprecated)[0];
 }
 
 function makeInputs(over: Partial<ResolvedInputs> = {}): ResolvedInputs {

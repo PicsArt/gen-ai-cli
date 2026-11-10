@@ -37,6 +37,7 @@ function summarizeParams(model: ModelDefinition): string {
 }
 
 export default class ModelsList extends BaseCommand {
+  static needsCatalog = true;
   static description = 'List available models';
   static examples = [
     { command: '<%= config.bin %> models', description: 'List all enabled models' },

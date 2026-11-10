@@ -24,11 +24,11 @@
  *     they become a regression hotspot.
  */
 import type { ModelDefinition, ParamDescriptor } from '@picsart/ai-sdk';
-import { ALL_MODELS } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import type { FlowSpec } from '#flows';
 import { ALIAS_MAP, type Catalog, loadCatalog } from '#param-surface';
 import type { CliDeps } from '#root/deps.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import { resolveScripted } from './02-resolve/scripted/resolver.ts';
 import { validateDryRun } from './03-execution/validate.ts';
 
@@ -129,8 +129,8 @@ function synthesizeForDescriptor(descriptor: ParamDescriptor): unknown {
 }
 
 describe('paramConfig wiring — every enabled model survives resolver → ctx', () => {
-  const catalog = loadCatalog(ALL_MODELS, ALIAS_MAP);
-  const models = ALL_MODELS.filter((each) => !each.deprecated && !SKIP_MODELS.has(each.id));
+  const catalog = loadCatalog(allModels(), ALIAS_MAP);
+  const models = allModels().filter((each) => !each.deprecated && !SKIP_MODELS.has(each.id));
 
   it('catalog exposes at least one enabled model to exercise', () => {
     expect(models.length).toBeGreaterThan(0);

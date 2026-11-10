@@ -58,8 +58,9 @@ vi.mock('node:readline', () => ({
   },
 }));
 
-import { ALL_MODELS, Model } from '@picsart/ai-sdk';
+import { Model } from '@picsart/ai-sdk';
 import type { CliDeps } from '#root/deps.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import {
   deriveTopLevelPromptFromMulti,
   flagsFullySpecifyInputs,
@@ -147,7 +148,7 @@ describe('resolveInputs — dispatch', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('resolveInputs — file-upload gate', () => {
-  const model = ALL_MODELS.find((m) => !m.deprecated) ?? ({} as never);
+  const model = allModels().find((m) => !m.deprecated) ?? ({} as never);
 
   function scriptedWithFiles(files: Record<string, unknown>) {
     resolveInteractiveMock.mockReset();
@@ -188,7 +189,7 @@ describe('resolveInputs — file-upload gate', () => {
 /* ─────────────────────────────────────────────────────────────────────── */
 
 describe('resolveInputs — multi-shot pre-flight on the interactive path', () => {
-  const model = ALL_MODELS.find((m) => !m.deprecated) ?? ({} as never);
+  const model = allModels().find((m) => !m.deprecated) ?? ({} as never);
 
   it('rejects interactive multiShot params without a shotType', async () => {
     resolveInteractiveMock.mockReset();
@@ -244,7 +245,7 @@ describe('resolveInputs — multi-shot pre-flight on the interactive path', () =
 
 describe('flagsFullySpecifyInputs — videoUrls/audioUrls models', () => {
   // Non-text-primary so no prompt is needed to fully specify (v2v extends).
-  const videoUrlsOnly = ALL_MODELS.find(
+  const videoUrlsOnly = allModels().find(
     (m) =>
       !m.deprecated &&
       !m.inputType.startsWith('t') &&
@@ -252,7 +253,7 @@ describe('flagsFullySpecifyInputs — videoUrls/audioUrls models', () => {
       !!Model(m.id).params().file('videoUrls'),
   );
   // All audioUrls-only models today are text-primary (tts) — pass a prompt.
-  const audioUrlsOnly = ALL_MODELS.find(
+  const audioUrlsOnly = allModels().find(
     (m) => !m.deprecated && !Model(m.id).params().file('audioUrl') && !!Model(m.id).params().file('audioUrls'),
   );
 

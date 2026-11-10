@@ -18,6 +18,7 @@ function formatSchemaValue(schema: {
 }
 
 export default class ModelsCompare extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Compare two models side-by-side';
   static examples = [
     { command: '<%= config.bin %> models compare flux-pro sora', description: 'Side-by-side comparison table' },

@@ -28,10 +28,11 @@
  *     - falls back to SDK_GAP_FLAGS for fields without a descriptor
  *     - silently ignores flags outside the catalog + gap list
  */
-import { ALL_MODELS, getModel, Model } from '@picsart/ai-sdk';
+import { getModel, Model } from '@picsart/ai-sdk';
 import { describe, expect, it } from 'vitest';
 import { defineFlow, type FlowSpec } from '#flows';
 import { UsageError } from '#infra/errors/usage.ts';
+import { allModels } from '#services/sdk-catalog.ts';
 import {
   buildParamsFromFlags,
   getModelsForOperation,
@@ -269,9 +270,9 @@ describe('buildParamsFromFlags', () => {
 describe('validateFileSlotLimits', () => {
   // Anchor to a real catalog model with a small imageUrls cap so the test
   // survives catalog changes (the cap is read from the catalog, not hardcoded).
-  const capped = ALL_MODELS.map((m) => ({ m, cap: Model(m.id).params().file('imageUrls')?.array?.max })).find(
-    (x) => typeof x.cap === 'number' && x.cap >= 1 && x.cap <= 6,
-  );
+  const capped = allModels()
+    .map((m) => ({ m, cap: Model(m.id).params().file('imageUrls')?.array?.max }))
+    .find((x) => typeof x.cap === 'number' && x.cap >= 1 && x.cap <= 6);
 
   it('throws a UsageError when the image count exceeds the model cap', () => {
     if (!capped) return; // no suitable fixture in this catalog build

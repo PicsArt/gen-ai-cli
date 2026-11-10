@@ -30,6 +30,7 @@
  *      Drive save, history, extras.
  *   8. Friendly handling of `InsufficientCreditsError` (offers billing link).
  */
+import type { ModelDefinition } from '@picsart/ai-sdk';
 import type { FlowSpec } from '#flows';
 import { composeFlagsForFlow } from '#flows';
 import { ExitCode } from '#infra/errors/index.ts';
@@ -46,7 +47,7 @@ import type { ResolvedInputs } from '#root/types.ts';
 import { getAuthenticatedFetch } from '#services/client.ts';
 import { getApiUrl, getUploadUrl } from '#services/constants.ts';
 import { flushPulse } from '#services/pulse.ts';
-import { allModels } from '#services/sdk-catalog.ts';
+import { allModels, ensureCatalog } from '#services/sdk-catalog.ts';
 import { getUserConfig } from '#services/user-config.ts';
 import { buildDriveContext } from './helpers/build-drive-context.ts';
 import { buildOutputConfig } from './helpers/build-output-config.ts';
@@ -229,6 +230,7 @@ export async function runOperation(flow: FlowSpec, flags: Record<string, unknown
  */
 export function createOperationCommand(flow: FlowSpec) {
   class OperationCommand extends BaseCommand {
+    static needsCatalog = true;
     static summary = flow.description;
     static examples = flow.examples ? [...flow.examples] : [];
 
@@ -237,6 +239,8 @@ export function createOperationCommand(flow: FlowSpec) {
     static flags = {} as never;
 
     override async init() {
+      // Before the flags are read below: they are composed from the catalog.
+      await ensureCatalog();
       // Rewrite `--flag true|false` into oclif-native `--flag` / `--no-flag`
       // BEFORE any parse. oclif boolean flags reject an explicit value, so
       // without this `--generate-audio false` dies with "Unexpected argument:
@@ -255,23 +259,29 @@ export function createOperationCommand(flow: FlowSpec) {
     }
   }
 
-  // Flags come from the model catalog, which in dynamic SDK mode exists only
-  // once `bootSdkCatalog()` has run — after every command module is imported
-  // (bundle-entry imports COMMANDS statically). So compose them on first read
-  // (oclif reads them inside `execute()`), not at class definition. A getter
-  // rather than `static get flags()`: TS rejects an accessor overriding the
-  // base class's `flags` property.
+  // Flags come from the model catalog, which exists only once
+  // `bootSdkCatalog()` has run — after every command module is imported
+  // (bundle-entry imports COMMANDS statically). So compose them on read (oclif
+  // reads them inside `execute()`), not at class definition, and again if the
+  // catalog changed since (a REPL `login` installs one). A getter rather than
+  // `static get flags()`: TS rejects an accessor overriding the base class's
+  // `flags` property.
   //
   // Cast: composeFlagsForFlow returns Record<string, unknown> because the
   // FlagSet is heterogeneous (string / boolean / integer flags). Runtime
   // values are real oclif Flag objects — the cross-block collision test
   // in `03-definitions/02-flows/03-compose/01-flag-set/` asserts that.
   let flags: ReturnType<typeof composeFlagsForFlow> | undefined;
+  let flagsFor: readonly ModelDefinition[] | undefined;
   Object.defineProperty(OperationCommand, 'flags', {
     configurable: true,
     enumerable: true,
     get: () => {
-      flags ??= composeFlagsForFlow(flow, getCatalog(), allModels());
+      const models = allModels();
+      if (!flags || flagsFor !== models) {
+        flags = composeFlagsForFlow(flow, getCatalog(), models);
+        flagsFor = models;
+      }
       return flags;
     },
   });

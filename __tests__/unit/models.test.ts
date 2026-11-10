@@ -2,10 +2,14 @@ import assert from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ALL_MODELS, DEFAULT_VISIBLE_RELEASES, findModel, isVisibleForReleases, releaseOf } from '@picsart/ai-sdk';
+import { DEFAULT_VISIBLE_RELEASES, findModel, isVisibleForReleases, releaseOf } from '@picsart/ai-sdk';
+import { allModels } from '../../src/02-services/sdk-catalog.ts';
+import { CATALOG_SNAPSHOT_PATH } from '../../test-fixtures/install-catalog.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = join(__dirname, '..', '..', 'bin', 'dev.mjs');
+/** The spawned CLI reads the same catalog snapshot this process installed. */
+const CLI_ENV = { ...process.env, NO_COLOR: '1', GEN_AI_CATALOG_FILE: CATALOG_SNAPSHOT_PATH };
 
 let passed = 0;
 let failed = 0;
@@ -27,7 +31,7 @@ function runCli(args: string[]): string {
   // so we merge stderr into stdout for assertion convenience.
   const result = execFileSync('node', [CLI, ...args], {
     encoding: 'utf-8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: CLI_ENV,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   return result;
@@ -36,12 +40,12 @@ function runCli(args: string[]): string {
 function runCliFull(args: string[]): string {
   const child = spawnSync('node', [CLI, ...args], {
     encoding: 'utf-8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: CLI_ENV,
   });
   return (child.stdout ?? '') + (child.stderr ?? '');
 }
 
-const visibleModels = ALL_MODELS.filter((model) => model.mode !== 'json' && isVisibleForReleases(model));
+const visibleModels = allModels().filter((model) => model.mode !== 'json' && isVisibleForReleases(model));
 
 console.log('models');
 
@@ -77,7 +81,7 @@ await test('--input-type i2v filters to i2v models', () => {
 
 await test('--disabled includes disabled models', () => {
   const output = runCli(['models', '--disabled']);
-  const allCount = ALL_MODELS.filter(
+  const allCount = allModels().filter(
     (m) => m.mode !== 'json' && DEFAULT_VISIBLE_RELEASES.includes(releaseOf(m)),
   ).length;
   assert.ok(output.includes(`${allCount} models`), `Expected "${allCount} models" in output`);

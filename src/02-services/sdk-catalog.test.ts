@@ -19,7 +19,7 @@ vi.mock('#services/auth.ts', () => ({
 const API = 'https://api.example.com';
 const CREDS = { token: 't', uid: 'u', refreshToken: 'r', expiresAt: '2999-01-01T00:00:00Z' };
 
-/** A models-catalog body with one model the bundle has never heard of. */
+/** A models-catalog body with one model the snapshot has never heard of. */
 const BODY = JSON.stringify({
   status: 'success',
   response: {
@@ -49,25 +49,24 @@ const originalHome = process.env.HOME;
 const originalApi = process.env.GEN_AI_API_URL;
 
 /**
- * Fresh CLI modules per test (mode + boot memo). The SDK itself is an external
+ * Fresh CLI modules per test (boot memo). The SDK itself is an external
  * dependency vitest does not re-evaluate, so its installed catalog persists
- * across tests in this file — every installing test uses the same BODY, and no
- * assertion reads the SDK's own accessors to prove the bundle is active.
+ * across tests in this file — every installing test uses the same BODY, and a
+ * test that loads nothing asserts on `allModels()`, not the SDK's accessors.
  */
 async function load() {
   vi.resetModules();
   const sdkCatalog = await import('./sdk-catalog.ts');
-  const sdkMode = await import('./sdk-mode.ts');
   const cache = await import('./catalog-cache.ts');
   const sdk = await import('@picsart/ai-sdk');
-  return { ...sdkCatalog, ...sdkMode, cache, sdk };
+  const errors = await import('#infra/errors/index.ts');
+  return { ...sdkCatalog, cache, sdk, errors };
 }
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-sdk-catalog-'));
   process.env.HOME = home;
   process.env.GEN_AI_API_URL = API;
-  delete process.env.GEN_AI_SDK_MODE;
   mocks.fetch.mockReset();
   mocks.refresh.mockReset();
   vi.stubGlobal('fetch', mocks.fetch);
@@ -79,27 +78,31 @@ afterEach(() => {
   process.env.HOME = originalHome;
   if (originalApi === undefined) delete process.env.GEN_AI_API_URL;
   else process.env.GEN_AI_API_URL = originalApi;
-  delete process.env.GEN_AI_SDK_MODE;
   vi.unstubAllGlobals();
   fs.rmSync(home, { recursive: true, force: true });
 });
 
 describe('bootSdkCatalog', () => {
-  it('stays on the bundle when GEN_AI_SDK_MODE=static, without a request', async () => {
-    process.env.GEN_AI_SDK_MODE = 'static';
-    const m = await load();
-    const info = await m.bootSdkCatalog();
-    expect(info).toMatchObject({ mode: 'static', source: 'bundled', reason: 'GEN_AI_SDK_MODE=static' });
-    expect(m.getSdkMode()).toBe('static');
-    expect(m.allModels()).toBe(m.sdk.ALL_MODELS);
-    expect(mocks.fetch).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the bundle when logged out with no cache', async () => {
+  it('loads no catalog when logged out with no cache, and asks for a login', async () => {
     mocks.fileCreds.mockReturnValue(null);
     const m = await load();
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'static', reason: 'not logged in' });
+    expect(await m.bootSdkCatalog()).toEqual({ source: null, models: 0, reason: 'not logged in', needsLogin: true });
     expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(m.isCatalogLoaded()).toBe(false);
+    expect(m.allModels()).toEqual([]);
+    expect(() => m.requireCatalog()).toThrow(m.errors.AuthError);
+  });
+
+  it('retries a login-blocked boot once credentials exist (a REPL login)', async () => {
+    mocks.fileCreds.mockReturnValue(null);
+    mocks.fetch.mockResolvedValue(ok(BODY));
+    const m = await load();
+    await m.bootSdkCatalog();
+    await expect(m.ensureCatalog()).rejects.toBeInstanceOf(m.errors.AuthError);
+
+    mocks.fileCreds.mockReturnValue(CREDS);
+    await m.ensureCatalog();
+    expect(m.allModels().map((x) => x.id)).toEqual(['brand-new-model']);
   });
 
   it('installs the remote catalog, exposes its models and params, and caches it', async () => {
@@ -107,16 +110,15 @@ describe('bootSdkCatalog', () => {
     const m = await load();
     const info = await m.bootSdkCatalog();
 
-    expect(info).toEqual({ mode: 'dynamic', source: 'network', models: 1 });
-    expect(m.getSdkMode()).toBe('dynamic');
+    expect(info).toEqual({ source: 'network', models: 1 });
     const [url] = mocks.fetch.mock.calls[0];
     expect(url).toBe(m.catalogUrl(API));
     expect(url).toContain('release=production%2Cgeneral-availability%2Cpreview');
     expect(url).toContain('includeDeprecated=true');
 
-    expect(m.allModels().map((x) => x.id)).toEqual(['brand-new-model']);
+    expect(m.allModels().map((x: { id: string }) => x.id)).toEqual(['brand-new-model']);
     expect(Object.keys(m.sdk.findModel('brand-new-model')?.paramConfig ?? {})).toEqual(['prompt', 'shine']);
-    expect(m.modelsByMode('image').map((x) => x.id)).toEqual(['brand-new-model']);
+    expect(m.modelsByMode('image').map((x: { id: string }) => x.id)).toEqual(['brand-new-model']);
     expect(m.cache.readCatalogCache(m.catalogUrl(API))).toMatchObject({
       body: BODY,
       etag: 'W/"v1"',
@@ -124,7 +126,7 @@ describe('bootSdkCatalog', () => {
     });
   });
 
-  it('routes every later client through the dynamic mode', async () => {
+  it('installs into the SDK, so any later client reads the loaded catalog', async () => {
     mocks.fetch.mockResolvedValue(ok(BODY));
     const m = await load();
     await m.bootSdkCatalog();
@@ -142,7 +144,7 @@ describe('bootSdkCatalog', () => {
       fetchedAt: Date.now(),
       maxAgeMs: 300_000,
     });
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'dynamic', source: 'cache' });
+    expect(await m.bootSdkCatalog()).toMatchObject({ source: 'cache' });
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
@@ -152,7 +154,7 @@ describe('bootSdkCatalog', () => {
     m.cache.writeCatalogCache({ url, body: BODY, etag: 'W/"v1"', fetchedAt: Date.now() - 600_000, maxAgeMs: 300_000 });
     mocks.fetch.mockResolvedValue(new Response(null, { status: 304, headers: { 'cache-control': 'max-age=120' } }));
 
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'dynamic', source: 'cache' });
+    expect(await m.bootSdkCatalog()).toMatchObject({ source: 'cache' });
     expect(new Headers(mocks.fetch.mock.calls[0][1]?.headers).get('If-None-Match')).toBe('W/"v1"');
     const refreshed = m.cache.readCatalogCache(url);
     expect(refreshed?.maxAgeMs).toBe(120_000);
@@ -170,32 +172,37 @@ describe('bootSdkCatalog', () => {
     });
     mocks.fetch.mockRejectedValue(new TypeError('fetch failed'));
     const info = await m.bootSdkCatalog();
-    expect(info).toMatchObject({ mode: 'dynamic', source: 'stale-cache' });
+    expect(info).toMatchObject({ source: 'stale-cache' });
     expect(info.reason).toContain('fetch failed');
   });
 
-  it('ignores a cache older than a week', async () => {
+  it('uses a cache of any age when the request fails — there is no bundled catalog', async () => {
     const m = await load();
     m.cache.writeCatalogCache({
       url: m.catalogUrl(API),
       body: BODY,
       etag: null,
-      fetchedAt: Date.now() - 8 * 24 * 60 * 60_000,
+      fetchedAt: Date.now() - 90 * 24 * 60 * 60_000,
       maxAgeMs: 300_000,
     });
     mocks.fetch.mockResolvedValue(new Response('{}', { status: 503 }));
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'static', reason: 'catalog request failed (HTTP 503)' });
+    expect(await m.bootSdkCatalog()).toMatchObject({
+      source: 'stale-cache',
+      reason: 'catalog request failed (HTTP 503)',
+    });
   });
 
-  it('falls back to the bundle on a malformed body, before any dynamic client exists', async () => {
+  it('loads nothing from a malformed body, and reports a network-class error', async () => {
     mocks.fetch.mockResolvedValue(ok('{"status":"success","response":{"models":[{"name":"no id"}]}}'));
     const m = await load();
-    expect(await m.bootSdkCatalog()).toMatchObject({
-      mode: 'static',
+    expect(await m.bootSdkCatalog()).toEqual({
+      source: null,
+      models: 0,
       reason: 'catalog request failed (malformed catalog response)',
     });
-    expect(m.getSdkMode()).toBe('static');
-    expect(m.allModels()).toBe(m.sdk.ALL_MODELS);
+    expect(m.allModels()).toEqual([]);
+    expect(() => m.requireCatalog()).toThrow(m.errors.NetworkError);
+    expect(m.cache.readCatalogCache(m.catalogUrl(API))).toBeNull();
   });
 
   const EXPIRED = () => ({ ...CREDS, expiresAt: new Date(Date.now() - 1000).toISOString() });
@@ -210,11 +217,7 @@ describe('bootSdkCatalog', () => {
       fetchedAt: Date.now() - 600_000,
       maxAgeMs: 300_000,
     });
-    expect(await m.bootSdkCatalog()).toMatchObject({
-      mode: 'dynamic',
-      source: 'stale-cache',
-      reason: 'access token expired',
-    });
+    expect(await m.bootSdkCatalog()).toMatchObject({ source: 'stale-cache', reason: 'access token expired' });
     expect(mocks.refresh).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
@@ -225,27 +228,66 @@ describe('bootSdkCatalog', () => {
     mocks.fetch.mockResolvedValue(ok(BODY));
     const m = await load();
 
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'dynamic', source: 'network' });
+    expect(await m.bootSdkCatalog()).toMatchObject({ source: 'network' });
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     expect(new Headers(mocks.fetch.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer fresh');
-    expect(m.allModels().map((x) => x.id)).toEqual(['brand-new-model']);
+    expect(m.allModels().map((x: { id: string }) => x.id)).toEqual(['brand-new-model']);
   });
 
-  it('falls back to the bundle when the refresh fails and there is no cache', async () => {
+  it('loads nothing and asks for a login when the refresh fails and there is no cache', async () => {
     mocks.fileCreds.mockReturnValue(EXPIRED());
     mocks.refresh.mockRejectedValue(new Error('Refresh token revoked'));
     const m = await load();
     expect(await m.bootSdkCatalog()).toMatchObject({
-      mode: 'static',
+      source: null,
       reason: 'token refresh failed (Refresh token revoked)',
+      needsLogin: true,
     });
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports an unreachable auth server during the refresh as a network failure, not a login', async () => {
+    mocks.fileCreds.mockReturnValue(EXPIRED());
+    mocks.refresh.mockRejectedValue(
+      new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo'), { code: 'ENOTFOUND' }) }),
+    );
+    const m = await load();
+    const info = await m.bootSdkCatalog();
+    expect(info).toMatchObject({ source: null, reason: 'token refresh failed (fetch failed)' });
+    expect(info.needsLogin).toBeUndefined();
+    expect(() => m.requireCatalog()).toThrow(m.errors.NetworkError);
+  });
+
+  it('retries a network-failed boot only after the retry interval (a long-lived REPL)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      mocks.fetch.mockRejectedValue(new TypeError('fetch failed'));
+      const m = await load();
+      await m.bootSdkCatalog();
+
+      // Right after the failure: no second request, the same error.
+      await expect(m.ensureCatalog()).rejects.toBeInstanceOf(m.errors.NetworkError);
+      expect(mocks.fetch).toHaveBeenCalledTimes(1);
+
+      // Back online 30 s later: the next command loads the catalog.
+      vi.advanceTimersByTime(30_000);
+      mocks.fetch.mockResolvedValue(ok(BODY));
+      await m.ensureCatalog();
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+      expect(m.allModels().map((x) => x.id)).toEqual(['brand-new-model']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('treats a catalog 401 as a failed request and never refreshes from it', async () => {
     mocks.fetch.mockResolvedValue(new Response('{}', { status: 401 }));
     const m = await load();
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'static', reason: 'catalog request failed (HTTP 401)' });
+    expect(await m.bootSdkCatalog()).toMatchObject({
+      source: null,
+      reason: 'catalog request failed (HTTP 401)',
+      needsLogin: true,
+    });
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
@@ -276,7 +318,7 @@ describe('bootSdkCatalog', () => {
 
       deadline.abort();
       expect(await boot).toMatchObject({
-        mode: 'static',
+        source: null,
         reason: 'catalog request failed (timed out after 4000 ms)',
       });
     } finally {
@@ -290,9 +332,30 @@ describe('bootSdkCatalog', () => {
     m.cache.writeCatalogCache({ url, body: '{"broken":', etag: 'W/"v1"', fetchedAt: Date.now(), maxAgeMs: 300_000 });
     mocks.fetch.mockResolvedValue(ok(BODY));
 
-    expect(await m.bootSdkCatalog()).toMatchObject({ mode: 'dynamic', source: 'network' });
+    expect(await m.bootSdkCatalog()).toMatchObject({ source: 'network' });
     expect(new Headers(mocks.fetch.mock.calls[0][1]?.headers).has('If-None-Match')).toBe(false);
     expect(m.cache.readCatalogCache(url)?.body).toBe(BODY);
+  });
+
+  it('installs GEN_AI_CATALOG_FILE without a request, and reports a bad one', async () => {
+    const file = path.join(home, 'catalog.json');
+    fs.writeFileSync(file, BODY);
+    process.env.GEN_AI_CATALOG_FILE = file;
+    try {
+      let m = await load();
+      expect(await m.bootSdkCatalog()).toEqual({ source: 'file', models: 1 });
+      expect(m.allModels().map((x: { id: string }) => x.id)).toEqual(['brand-new-model']);
+
+      fs.writeFileSync(file, '{"status":"error"}');
+      m = await load();
+      expect(await m.bootSdkCatalog()).toMatchObject({
+        source: null,
+        reason: expect.stringContaining('GEN_AI_CATALOG_FILE'),
+      });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.GEN_AI_CATALOG_FILE;
+    }
   });
 
   it('boots once for concurrent callers', async () => {

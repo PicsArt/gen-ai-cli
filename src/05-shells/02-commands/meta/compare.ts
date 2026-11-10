@@ -42,6 +42,7 @@ function elapsed(ms?: number): string {
 }
 
 export default class Compare extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Run one prompt across multiple models and compare the results';
 
   static examples = [

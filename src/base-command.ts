@@ -1,6 +1,7 @@
 import { Command } from '@oclif/core';
 import { writeDebugLog } from '#infra/utils/debug-log.ts';
 import { flushPulse } from '#services/pulse.ts';
+import { ensureCatalog } from '#services/sdk-catalog.ts';
 import { getUserConfig } from '#services/user-config.ts';
 import { CliError, ExitCode } from './01-infrastructure/errors/index.ts';
 import { baseFlags } from './01-infrastructure/flags/base.ts';
@@ -12,8 +13,37 @@ import { createOutputManager } from './01-infrastructure/ui-core/output.ts';
 import type { CliDeps } from './deps.ts';
 import { createCliDeps } from './deps.ts';
 
+/**
+ * Whether raw, unparsed argv asks for `--json`, in every form an operation's
+ * boolean-argv normalization accepts: `--json`, `--json=true|false`,
+ * `--json true|false` (case-insensitive). The last occurrence wins; tokens
+ * after `--` are args.
+ */
+export function argvRequestsJson(argv: readonly string[]): boolean {
+  const asBool = (v: string | undefined) => {
+    const lower = v?.toLowerCase();
+    return lower === 'true' ? true : lower === 'false' ? false : undefined;
+  };
+  let json = false;
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === '--') break;
+    if (token === '--json') {
+      const next = asBool(argv[i + 1]);
+      json = next ?? true;
+      if (next !== undefined) i += 1;
+    } else if (token.startsWith('--json=')) {
+      json = asBool(token.slice('--json='.length)) ?? json;
+    }
+  }
+  return json;
+}
+
 export abstract class BaseCommand extends Command {
   static baseFlags = baseFlags;
+
+  /** Fail before parsing unless the model catalog loaded (see sdk-catalog.ts). */
+  static needsCatalog = false;
 
   protected deps!: CliDeps;
 
@@ -72,6 +102,9 @@ export abstract class BaseCommand extends Command {
         noInput: flags['no-input'] || !process.stdin.isTTY,
       },
     });
+
+    // After deps, so a --json run gets the error as JSON.
+    if ((this.constructor as typeof BaseCommand).needsCatalog) await ensureCatalog();
   }
 
   /**
@@ -113,21 +146,24 @@ export abstract class BaseCommand extends Command {
 
   async catch(err: Error & { exitCode?: number }) {
     // Ensure deps are initialized — init() may not have run if oclif
-    // threw for missing args or invalid flags before calling init().
+    // threw for missing args or invalid flags before calling init(), or an
+    // operation failed its catalog check before parsing. The flags were never
+    // parsed then, so `--json` is read off argv: a --json run still gets JSON.
     if (!this.deps) {
+      const json = argvRequestsJson(this.argv ?? []);
       const color = createColorManager({ enabled: 'auto' });
       const out = createOutputManager({
         color,
         quiet: false,
         debug: false,
-        jsonMode: false,
+        jsonMode: json,
         plainMode: false,
       });
       this.deps = createCliDeps({
         color,
         out,
         config: getUserConfig(),
-        flags: { quiet: false, debug: false, json: false, plain: false, noInput: false },
+        flags: { quiet: false, debug: false, json, plain: false, noInput: false },
       });
     }
 

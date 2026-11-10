@@ -286,7 +286,7 @@ hanging on a missing flag.
 |---|---|
 | `GEN_AI_API_URL` | Override the API endpoint |
 | `GEN_AI_UPLOAD_URL` | Override the upload endpoint |
-| `GEN_AI_SDK_MODE` | `static` pins the model catalog bundled with this release; default loads the live models-hub catalog, falling back to the bundled one (details: `docs/cli-spec.md`) |
+| `GEN_AI_CATALOG_FILE` | Path to a saved models-catalog response to use instead of loading the live catalog (tests, offline CI). By default the catalog loads from models-hub at startup and is cached in `~/.gen-ai/catalog-cache/` (details: `docs/cli-spec.md`) |
 | `PICSART_CLI_VERSION` | Build-time version string (set by tsup) |
 | `NO_COLOR` | Standard NO_COLOR — disables ANSI when set |
 

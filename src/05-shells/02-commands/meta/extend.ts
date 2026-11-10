@@ -39,6 +39,7 @@ function detectAspectRatio(filePath: string): string | undefined {
 }
 
 export default class Extend extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Extend a VEO video by +7 seconds';
 
   static examples = [

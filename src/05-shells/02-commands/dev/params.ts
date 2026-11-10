@@ -28,6 +28,7 @@ import { BaseCommand } from '#root/base-command.ts';
 import { allModels } from '#services/sdk-catalog.ts';
 
 export default class DevParams extends BaseCommand {
+  static needsCatalog = true;
   static summary = 'Audit the CLI parameter surface against the SDK catalog';
   static hidden = true;
 

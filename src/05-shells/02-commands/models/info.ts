@@ -8,6 +8,7 @@ import { BaseCommand } from '#root/base-command.ts';
 import { allModels } from '#services/sdk-catalog.ts';
 
 export default class ModelsInfo extends BaseCommand {
+  static needsCatalog = true;
   static description = 'Show detailed model information';
   static examples = [
     { command: '<%= config.bin %> models info flux-pro', description: 'Show details for a model' },
