@@ -93,6 +93,7 @@ gen-ai login      # opens Picsart SSO in your browser
 gen-ai whoami     # shows the current user
 gen-ai logout     # clears credentials
 gen-ai credits    # remaining credits on your account
+gen-ai credits history --type deduct   # what you spent credits on (-n 50, --all, --json)
 ```
 
 Credentials are stored at `~/.gen-ai/credentials.json` (mode 600). The CLI

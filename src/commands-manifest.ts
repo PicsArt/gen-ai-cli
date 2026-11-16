@@ -18,7 +18,8 @@ import ConfigKeys from './05-shells/02-commands/config/keys.ts';
 import ConfigList from './05-shells/02-commands/config/list.ts';
 import ConfigSet from './05-shells/02-commands/config/set.ts';
 import ConfigUnset from './05-shells/02-commands/config/unset.ts';
-import Credits from './05-shells/02-commands/credits.ts';
+import CreditsHistory from './05-shells/02-commands/credits/history.ts';
+import Credits from './05-shells/02-commands/credits/index.ts';
 import DevParams from './05-shells/02-commands/dev/params.ts';
 import Download from './05-shells/02-commands/drive/download.ts';
 import List from './05-shells/02-commands/drive/list.ts';
@@ -97,6 +98,7 @@ export const COMMANDS: Record<string, Command.Class> = {
   update: Update,
   version: Version,
   credits: Credits,
+  'credits:history': CreditsHistory,
   'dev:params': DevParams,
   // ── Operations (one per FLOW) ──────────────────────────────────
   // InputType-only flows

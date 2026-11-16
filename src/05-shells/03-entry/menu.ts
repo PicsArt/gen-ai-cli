@@ -39,6 +39,8 @@ export const UTILITY_COMMANDS = [
   'models compare',
   'pricing',
   'credits',
+  'credits:history',
+  'credits history',
   'history',
   'history:last',
   'history last',
