@@ -443,4 +443,20 @@ describe('doRefresh routing by authSource', () => {
     expect(refreshDeviceTokenMock).toHaveBeenCalledTimes(1);
     expect(updated.token).toBe('new');
   });
+
+  it('routes a browser-login (auth-server) refresh to the auth server too, never to mini-apps', async () => {
+    refreshDeviceTokenMock.mockReset();
+    refreshDeviceTokenMock.mockResolvedValue(validCreds({ token: 'new', authSource: 'auth-server' }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      writeCreds(validCreds({ authSource: 'auth-server' }));
+      const updated = await refreshAccessToken();
+      expect(refreshDeviceTokenMock).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(updated.token).toBe('new');
+      expect(loadCredentials()?.authSource).toBe('auth-server');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });

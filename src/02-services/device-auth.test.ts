@@ -163,6 +163,37 @@ describe('refreshDeviceToken', () => {
     expect(updated.authSource).toBe('device');
   });
 
+  it('keeps a browser-login session tagged auth-server across a refresh', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ access_token: 'new-at', refresh_token: 'new-rt', expires_in: 3600 }), {
+          status: 200,
+        }),
+    ) as unknown as typeof fetch;
+    const updated = await refreshDeviceToken({
+      token: 'old',
+      refreshToken: 'old-rt',
+      uid: 'u',
+      email: 'e@x',
+      expiresAt: '2000-01-01T00:00:00Z',
+      authSource: 'auth-server',
+    });
+    expect(updated.authSource).toBe('auth-server');
+  });
+
+  it('points an expired session at the login command it was created with', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 }),
+    ) as unknown as typeof fetch;
+    const base = { token: 't', refreshToken: 'r', uid: 'u', email: 'e', expiresAt: '2000-01-01T00:00:00Z' };
+    await expect(refreshDeviceToken({ ...base, authSource: 'auth-server' })).rejects.toThrow(
+      'Run "gen-ai login" to re-authenticate.',
+    );
+    await expect(refreshDeviceToken({ ...base, authSource: 'device' })).rejects.toThrow(
+      'Run "gen-ai login --device" to re-authenticate.',
+    );
+  });
+
   it('throws AuthError when the server rejects the refresh', async () => {
     globalThis.fetch = vi.fn(
       async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }),

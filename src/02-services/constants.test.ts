@@ -11,12 +11,9 @@ import {
   getCredentialsPath,
   getDeviceAuthUrl,
   getDeviceClientId,
-  getOAuthAuthUrl,
-  getTokenExchangeUrl,
   getTokenRefreshUrl,
   getUploadUrl,
   makeHeaders,
-  OAUTH_CLIENT_ID,
   OAUTH_REDIRECT_PORT,
   OAUTH_SCOPE,
   resolveUserPath,
@@ -41,7 +38,6 @@ describe('constants — defaults', () => {
   });
 
   it('OAuth constants are well-formed', () => {
-    expect(OAUTH_CLIENT_ID.length).toBeGreaterThan(0);
     expect(Number.isInteger(OAUTH_REDIRECT_PORT)).toBe(true);
     expect(OAUTH_REDIRECT_PORT).toBeGreaterThan(1024);
     expect(OAUTH_SCOPE.length).toBeGreaterThan(0);
@@ -126,41 +122,7 @@ describe('OAuth URL helpers', () => {
     else delete process.env.GEN_AI_API_URL;
   });
 
-  it('SSO base is picsart.com when API is production', () => {
-    delete process.env.GEN_AI_API_URL;
-    expect(getOAuthAuthUrl()).toBe('https://picsart.com/sso');
-  });
-
-  it('SSO base follows the API host, dropping a leading api label', () => {
-    process.env.GEN_AI_API_URL = 'https://api.example.com';
-    expect(getOAuthAuthUrl()).toBe('https://example.com/sso');
-  });
-
-  it('drops a hyphenated api-<env> label too', () => {
-    // Shape of a non-production endpoint: api-<env>.<site> → <site>/sso.
-    process.env.GEN_AI_API_URL = 'https://api-alt.example.com';
-    expect(getOAuthAuthUrl()).toBe('https://example.com/sso');
-  });
-
-  it('uses the host as-is when there is no api label to strip', () => {
-    process.env.GEN_AI_API_URL = 'http://localhost:3000';
-    expect(getOAuthAuthUrl()).toBe('http://localhost:3000/sso');
-  });
-
-  it('keeps an explicit port when stripping the api label', () => {
-    // A neutral region label here: the GitHub mirror guard blocks anything
-    // resembling a non-production endpoint, even on a fake example.com host.
-    process.env.GEN_AI_API_URL = 'https://api-eu.example.com:8443';
-    expect(getOAuthAuthUrl()).toBe('https://example.com:8443/sso');
-  });
-
-  it('token exchange URL is under the API host', () => {
-    delete process.env.GEN_AI_API_URL;
-    expect(getTokenExchangeUrl()).toContain(API_URL);
-    expect(getTokenExchangeUrl()).toContain('exchange');
-  });
-
-  it('token refresh URL is under the API host', () => {
+  it('legacy token refresh URL is under the API host', () => {
     delete process.env.GEN_AI_API_URL;
     expect(getTokenRefreshUrl()).toContain(API_URL);
     expect(getTokenRefreshUrl()).toContain('refresh');

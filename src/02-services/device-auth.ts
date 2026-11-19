@@ -1,8 +1,8 @@
 /**
  * OAuth2 Device Authorization Grant (RFC 8628) — headless CLI login.
  *
- * Talks to pa-authorization-server (a DIFFERENT auth system from the mini-apps
- * flow in auth.ts), which returns standard OAuth bodies. The user approves in a
+ * Talks to pa-authorization-server, the same server and client as the browser
+ * flow in auth.ts; it returns standard OAuth bodies. The user approves in a
  * browser anywhere; the CLI polls the token endpoint until approval lands.
  */
 import { AuthError } from '#infra/errors/auth.ts';
@@ -177,10 +177,11 @@ export async function pollForToken(
 }
 
 /**
- * Renew a device-sourced credential at pa-authorization-server. Uses the
- * standard `refresh_token` grant (form-encoded, public client). The server runs
- * with reuseRefreshTokens=false, so each call returns a new refresh token that
- * the caller must persist.
+ * Renew a credential issued by pa-authorization-server — by this device flow or
+ * by the browser flow in auth.ts, which shares the client. Uses the standard
+ * `refresh_token` grant (form-encoded, public client). The server runs with
+ * reuseRefreshTokens=false, so each call returns a new refresh token that the
+ * caller must persist.
  */
 export async function refreshDeviceToken(creds: Credentials): Promise<Credentials> {
   let res: Response;
@@ -200,7 +201,8 @@ export async function refreshDeviceToken(creds: Credentials): Promise<Credential
   const data = await parseJson(res);
   if (!res.ok || !data || typeof data.access_token !== 'string') {
     if (res.status === 401 || res.status === 403) {
-      throw new AuthError('Session expired. Run "gen-ai login --device" to re-authenticate.');
+      const command = creds.authSource === 'auth-server' ? 'gen-ai login' : 'gen-ai login --device';
+      throw new AuthError(`Session expired. Run "${command}" to re-authenticate.`);
     }
     throw new AuthError(`Token refresh failed: ${String(data?.error ?? `HTTP ${res.status}`)}`);
   }
@@ -217,7 +219,9 @@ export async function refreshDeviceToken(creds: Credentials): Promise<Credential
     expiresAt: new Date(Date.now() + data.expires_in * 1000).toISOString(),
     refreshExpiresAt: refreshSec ? new Date(Date.now() + refreshSec * 1000).toISOString() : creds.refreshExpiresAt,
     apiUrl: getApiUrl(),
-    authSource: 'device',
+    // Keep the flow that issued the session, so the next refresh and any
+    // re-login hint still match how the user signed in.
+    authSource: creds.authSource === 'auth-server' ? 'auth-server' : 'device',
   };
 }
 

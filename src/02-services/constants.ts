@@ -7,35 +7,16 @@ export const UPLOAD_URL = 'https://upload.picsart.com';
 /** CLI version — read from package.json at runtime. */
 export const CLI_VERSION = process.env.PICSART_CLI_VERSION ?? '0.0.0-dev';
 
-/* ── OAuth2 ─────────────────────────────────────────────────── */
-export const OAUTH_CLIENT_ID = 'auth-service-miniapps-developer';
+/* ── OAuth2 (pa-authorization-server) ────────────────────────── */
 export const OAUTH_REDIRECT_PORT = 5161;
 export const OAUTH_SCOPE = 'user-global';
 
-/**
- * SSO base for the environment the CLI is pointed at, derived from the API host
- * rather than hardcoded per environment.
- *
- * The site host is the API host minus a leading `api` / `api-*` label:
- *   https://api.picsart.com        → https://picsart.com/sso
- *   https://api-foo.example.com    → https://example.com/sso
- *   http://localhost:3000          → http://localhost:3000/sso   (no label to strip)
- *
- * Deriving it keeps every non-production hostname out of the source — point
- * `GEN_AI_API_URL` at an environment and its SSO base follows automatically,
- * including self-hosted setups the old hardcoded mapping couldn't express.
+/*
+ * Both login flows — the browser Authorization Code + PKCE flow (auth.ts) and
+ * the headless Device Authorization Grant (device-auth.ts) — talk to
+ * pa-authorization-server with the SAME public client. The `Device` in the
+ * names below is historical: the device flow adopted this server first.
  */
-export function getOAuthAuthUrl(): string {
-  const url = new URL(getApiUrl());
-  const labels = url.hostname.split('.');
-  const hasApiLabel = labels.length > 2 && (labels[0] === 'api' || labels[0].startsWith('api-'));
-  // Keep any explicit port when stripping the api label (self-hosted setups).
-  const strippedHost = url.port ? `${labels.slice(1).join('.')}:${url.port}` : labels.slice(1).join('.');
-  const siteHost = hasApiLabel ? strippedHost : url.host;
-  return `${url.protocol}//${siteHost}/sso`;
-}
-
-/* ── Device Authorization Grant (pa-authorization-server) ────── */
 
 export const DEVICE_CLIENT_ID_PROD = 'auth-service-Gen-AI-CLI';
 export const DEVICE_CLIENT_ID_STAGE = 'auth-service-gen-ai-cli';
@@ -45,8 +26,10 @@ export const DEVICE_CLIENT_ID_STAGE = 'auth-service-gen-ai-cli';
  * the leading `api` label for `auth` and appending `/api`:
  *   api.picsart.com             → https://auth.picsart.com/api
  *   api-<env>.<domain>          → https://auth-<env>.<domain>/api
- * This is a DIFFERENT auth system from the mini-apps token URLs above, with
- * its own client registry. Override with GEN_AI_DEVICE_AUTH_URL.
+ * Endpoints under it: `/oauth2/authorize`, `/oauth2/device_authorization`,
+ * `/oauth2/token`. This is a DIFFERENT auth system from the legacy mini-apps
+ * refresh URL below, with its own client registry. Override with
+ * GEN_AI_DEVICE_AUTH_URL.
  */
 export function getDeviceAuthUrl(): string {
   const override = process.env.GEN_AI_DEVICE_AUTH_URL;
@@ -59,7 +42,7 @@ export function getDeviceAuthUrl(): string {
 }
 
 /**
- * Device client_id for the target environment — the registration NAME, not the
+ * OAuth client_id for the target environment — the registration NAME, not the
  * UUID the admin UI shows (the UUIDs return `invalid_client`). Stage/dev hosts
  * use the lowercase stage client; everything else uses the prod client. The
  * two names differ in case and must be sent verbatim. Override with
@@ -72,10 +55,11 @@ export function getDeviceClientId(): string {
   return /-stage|-dev/.test(host) ? DEVICE_CLIENT_ID_STAGE : DEVICE_CLIENT_ID_PROD;
 }
 
-export function getTokenExchangeUrl(): string {
-  return `${getApiUrl()}/mini-apps-portal/authz/oauth2/code/exchange`;
-}
-
+/**
+ * Legacy mini-apps refresh endpoint. Nothing logs in through mini-apps any
+ * more; this only keeps sessions created by older builds (credentials with no
+ * `authSource`, or `'miniapps'`) alive until their refresh token lapses.
+ */
 export function getTokenRefreshUrl(): string {
   return `${getApiUrl()}/mini-apps-portal/authz/oauth2/refresh`;
 }

@@ -26,11 +26,13 @@ export interface Credentials {
    */
   apiUrl?: string;
   /**
-   * Which auth system issued these tokens, so refresh routes to the right
-   * server. Absent on credentials written before this field existed (and on
-   * env credentials) — treated as the default mini-apps flow.
+   * Which flow issued these tokens, so refresh routes to the right server:
+   * `'auth-server'` (browser login) and `'device'` (`login --device`) both
+   * refresh at pa-authorization-server. Absent on credentials written by
+   * builds that still logged in through mini-apps (and on env credentials) —
+   * those, like `'miniapps'`, refresh at the legacy mini-apps endpoint.
    */
-  authSource?: 'device' | 'miniapps';
+  authSource?: 'auth-server' | 'device' | 'miniapps';
 }
 
 /** Timeout for the user-info call (and other short identity lookups). */

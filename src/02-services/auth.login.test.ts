@@ -7,6 +7,7 @@
  * instead of a hanging socket, a state mismatch must NOT consume the flow,
  * and the success page must be flushed before the server closes.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,6 +35,8 @@ beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-ai-login-'));
   originalHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  process.env.GEN_AI_DEVICE_AUTH_URL = 'https://auth-test.example.com/api';
+  process.env.GEN_AI_DEVICE_CLIENT_ID = 'test-cli';
   openInDefaultMock.mockReset();
   tokenFetchInits = [];
 
@@ -42,17 +45,15 @@ beforeEach(() => {
   globalThis.fetch = ((url: unknown, init?: RequestInit) => {
     const u = String(url);
     tokenFetchInits.push({ url: u, init });
-    if (u.includes('/oauth2/code/exchange')) {
+    if (u.includes('/oauth2/token')) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            status: 'success',
-            response: {
-              access_token: 'at-123',
-              refresh_token: 'rt-456',
-              expires_in: 3600,
-              refresh_token_expires_in: 86_400,
-            },
+            access_token: 'at-123',
+            refresh_token: 'rt-456',
+            expires_in: 3600,
+            refresh_token_expires_in: 86_400,
+            token_type: 'Bearer',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -72,14 +73,17 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  delete process.env.GEN_AI_DEVICE_AUTH_URL;
+  delete process.env.GEN_AI_DEVICE_CLIENT_ID;
   if (originalHome !== undefined) process.env.HOME = originalHome;
   else delete process.env.HOME;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
-/** Start login(), wait for the auth URL, return its redirect_uri + state. */
+/** Start login(), wait for the auth URL, return it with its redirect_uri + state. */
 async function startLogin(): Promise<{
   promise: ReturnType<typeof login>;
+  authUrl: URL;
   redirectUri: string;
   state: string;
 }> {
@@ -90,7 +94,7 @@ async function startLogin(): Promise<{
   const authUrl = new URL(openInDefaultMock.mock.calls[0][0] as string);
   const redirectUri = authUrl.searchParams.get('redirect_uri') as string;
   const state = authUrl.searchParams.get('state') as string;
-  return { promise, redirectUri, state };
+  return { promise, authUrl, redirectUri, state };
 }
 
 describe('login — OAuth callback server', () => {
@@ -110,6 +114,34 @@ describe('login — OAuth callback server', () => {
 
     const saved = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gen-ai', 'credentials.json'), 'utf-8'));
     expect(saved.token).toBe('at-123');
+    // Tagged so refresh routes to the auth server, not the legacy mini-apps URL.
+    expect(saved.authSource).toBe('auth-server');
+  });
+
+  it('sends the browser to the auth server authorize endpoint with PKCE', async () => {
+    const { promise, authUrl, redirectUri, state } = await startLogin();
+
+    expect(`${authUrl.origin}${authUrl.pathname}`).toBe('https://auth-test.example.com/api/oauth2/authorize');
+    expect(authUrl.searchParams.get('client_id')).toBe('test-cli');
+    expect(authUrl.searchParams.get('response_type')).toBe('code');
+    expect(authUrl.searchParams.get('scope')).toBe('user-global');
+    expect(redirectUri).toMatch(/^http:\/\/localhost:516[1-3]$/);
+    expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
+    const challenge = authUrl.searchParams.get('code_challenge') as string;
+
+    await realFetch(`${redirectUri}/?code=auth-code&state=${state}`);
+    await promise;
+
+    // The verifier sent on exchange must be the one the challenge was derived from.
+    const exchange = tokenFetchInits.find((c) => c.url.includes('/oauth2/token'));
+    expect(exchange?.url).toBe('https://auth-test.example.com/api/oauth2/token');
+    const form = new URLSearchParams(String(exchange?.init?.body));
+    expect(form.get('grant_type')).toBe('authorization_code');
+    expect(form.get('code')).toBe('auth-code');
+    expect(form.get('redirect_uri')).toBe(redirectUri);
+    expect(form.get('client_id')).toBe('test-cli');
+    const verifier = form.get('code_verifier') as string;
+    expect(crypto.createHash('sha256').update(verifier).digest('base64url')).toBe(challenge);
   });
 
   it('answers stray paths (favicon) with 404 instead of hanging, and keeps the flow alive', async () => {
@@ -154,7 +186,7 @@ describe('login — OAuth callback server', () => {
     await realFetch(`${redirectUri}/?code=auth-code&state=${state}`);
     await promise;
 
-    const exchange = tokenFetchInits.find((c) => c.url.includes('/oauth2/code/exchange'));
+    const exchange = tokenFetchInits.find((c) => c.url.includes('/oauth2/token'));
     const userInfo = tokenFetchInits.find((c) => c.url.includes('/users/show/me.json'));
     expect(exchange?.init?.signal).toBeInstanceOf(AbortSignal);
     expect(userInfo?.init?.signal).toBeInstanceOf(AbortSignal);
@@ -193,13 +225,12 @@ describe('login — OAuth callback server', () => {
     await rejection;
   });
 
-  it('rejects with the descriptive exchange error when a 200 lacks a `response` payload', async () => {
-    // Regression: a 200 { status: 'success' } with no `response` used to hit
-    // the destructuring line and reject with a bare TypeError instead of the
-    // intended "Token exchange failed…" error.
+  it('rejects with the descriptive exchange error when a 200 carries no tokens', async () => {
+    // Regression: a 200 without the token payload must reject with the
+    // intended "Token exchange failed…" error, not a bare TypeError.
     globalThis.fetch = ((url: unknown, init?: RequestInit) => {
       const u = String(url);
-      if (u.includes('/oauth2/code/exchange')) {
+      if (u.includes('/oauth2/token')) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: 'success' }), {
             status: 200,

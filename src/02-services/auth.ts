@@ -1,16 +1,17 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
+import { AuthError } from '#infra/errors/auth.ts';
 import { isNetworkError, NetworkError } from '#infra/errors/network.ts';
 import type { OutputManager } from '#infra/ui-core/output.ts';
 import { openInDefault } from '#infra/utils/open.ts';
+import { createPkcePair, exchangeAuthorizationCode } from '#services/auth-code.ts';
 import {
   getApiUrl,
   getCredentialsPath,
-  getOAuthAuthUrl,
-  getTokenExchangeUrl,
+  getDeviceAuthUrl,
+  getDeviceClientId,
   getTokenRefreshUrl,
-  OAUTH_CLIENT_ID,
   OAUTH_REDIRECT_PORT,
   OAUTH_SCOPE,
 } from '#services/constants.ts';
@@ -181,6 +182,7 @@ function respondWithErrorPage(res: http.ServerResponse, message: string): void {
 
 /* ── OAuth2 Authorization Code flow ─────────────────────────── */
 
+/** Body of the legacy mini-apps refresh endpoint (see doRefresh). */
 interface TokenResponse {
   response: {
     access_token: string;
@@ -250,47 +252,24 @@ async function parseTokenResponse(res: Response): Promise<TokenResponse | null> 
   }
 }
 
-/**
- * Timeout for the token-exchange and user-info calls. These run AFTER the
- * callback handler sets `handled = true`, which disarms login()'s 5-minute
- * timer — without their own AbortSignal a stalled endpoint would leave the
- * login promise pending forever with no message to the user.
- */
+/** Timeout for the legacy refresh call — a stalled endpoint must not hang the CLI. */
 const TOKEN_FETCH_TIMEOUT_MS = 30_000;
-
-async function exchangeCode(code: string, redirectUri: string): Promise<TokenResponse> {
-  const res = await fetch(getTokenExchangeUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ code, redirect_uri: redirectUri }),
-    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
-  });
-  const data = await parseTokenResponse(res);
-  // `data.response` guarded too: a 200 missing the payload must surface the
-  // descriptive error below, not a bare TypeError from the destructuring.
-  if (!res.ok || !data || data.status !== 'success' || !data.response) {
-    throw new Error(`Token exchange failed: ${data?.message ?? data?.reason ?? `HTTP ${res.status}`}`);
-  }
-  if (!data.response.access_token || !data.response.refresh_token) {
-    throw new Error('Missing tokens in exchange response');
-  }
-  return data;
-}
 
 export async function login(notify: AuthNotifier): Promise<Credentials> {
   const state = crypto.randomBytes(16).toString('hex');
   const { server, port } = await findAvailableServer();
   const redirectUri = `http://localhost:${port}`;
 
-  // TODO: Add PKCE (RFC 7636) — required for public CLI clients per RFC 8252.
-  // Needs: generate code_verifier/code_challenge here, send code_verifier in token exchange.
-  // Blocked on confirming Picsart SSO supports code_challenge_method=S256.
-  const authUrl = `${getOAuthAuthUrl()}?${new URLSearchParams({
-    client_id: OAUTH_CLIENT_ID,
+  const pkce = createPkcePair();
+
+  const authUrl = `${getDeviceAuthUrl()}/oauth2/authorize?${new URLSearchParams({
+    client_id: getDeviceClientId(),
     scope: OAUTH_SCOPE,
     redirect_uri: redirectUri,
     response_type: 'code',
     state,
+    code_challenge: pkce.challenge,
+    code_challenge_method: 'S256',
   })}`;
 
   return new Promise<Credentials>((resolve, reject) => {
@@ -354,8 +333,11 @@ export async function login(notify: AuthNotifier): Promise<Credentials> {
       }
 
       try {
-        const tokenData = await exchangeCode(code, redirectUri);
-        const { access_token, refresh_token, expires_in, refresh_token_expires_in } = tokenData.response;
+        const { access_token, refresh_token, expires_in, refresh_token_expires_in } = await exchangeAuthorizationCode(
+          code,
+          redirectUri,
+          pkce.verifier,
+        );
 
         const user = await fetchUserInfo(access_token);
 
@@ -369,6 +351,7 @@ export async function login(notify: AuthNotifier): Promise<Credentials> {
             ? new Date(Date.now() + refresh_token_expires_in * 1000).toISOString()
             : undefined,
           apiUrl: getApiUrl(),
+          authSource: 'auth-server',
         };
         saveCredentials(creds);
 
@@ -409,10 +392,11 @@ async function doRefresh(): Promise<Credentials> {
   if (!creds?.refreshToken) {
     throw new Error('No refresh token. Run "gen-ai login" to authenticate.');
   }
-  // Device-issued tokens refresh at pa-authorization-server, not the mini-apps
-  // URL. Lazy import avoids a load-time cycle (device-auth imports credentials,
-  // not auth). Checked before the expiry gate — the device server owns expiry.
-  if (creds.authSource === 'device') {
+  // Tokens issued by pa-authorization-server (browser or device login) refresh
+  // there, not at the legacy mini-apps URL. Lazy import avoids a load-time
+  // cycle (device-auth imports credentials, not auth). Checked before the
+  // expiry gate — the auth server owns expiry.
+  if (creds.authSource === 'auth-server' || creds.authSource === 'device') {
     const { refreshDeviceToken } = await import('#services/device-auth.ts');
     const updated = await refreshDeviceToken(creds);
     saveCredentials(updated);
@@ -508,7 +492,6 @@ export async function getToken(notify: AuthNotifier = defaultAuthNotifier): Prom
 
   // 5. No credentials or refresh failed — auto-login if interactive
   if (!process.stdin.isTTY) {
-    const { AuthError } = await import('#infra/errors/auth.ts');
     const detail = mismatchHint ?? refreshFailure;
     throw new AuthError(
       `Not authenticated.${detail ? ` ${detail}` : ''} Set PICSART_ACCESS_TOKEN and PICSART_USER_ID env vars, or run "gen-ai login" interactively.`,
